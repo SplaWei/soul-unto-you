@@ -1,0 +1,12 @@
+.env
+*.local.json
+*.token
+.soul-hub.token
+private-souls/
+*.log
+node_modules/
+.DS_Store
+Thumbs.db
+examples/demo-soul/INDEX/
+examples/demo-soul/SNAPSHOTS/
+examples/demo-soul/INNER-LIFE/

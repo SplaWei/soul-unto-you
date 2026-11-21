@@ -1,0 +1,50 @@
+{
+  "soulHubUrl": "http://127.0.0.1:7777",
+  "bodyId": "qq-onebot-main",
+  "displayName": "QQ 独立伴侣躯体",
+  "onebot": {
+    "wsUrl": "ws://127.0.0.1:3001",
+    "wsAccessToken": "",
+    "httpUrl": "http://127.0.0.1:3000",
+    "httpAccessToken": "",
+    "reconnectBaseMs": 2000,
+    "reconnectMaxMs": 30000
+  },
+  "guard": {
+    "allowedUsers": [
+      "10001"
+    ],
+    "allowedGroups": [
+      "20001"
+    ],
+    "privateCooldownMs": 2500,
+    "groupCooldownMs": 4000,
+    "maxRepliesPerMinute": 12,
+    "maxRepliesPerHour": 120,
+    "replyDelayMinMs": 800,
+    "replyDelayMaxMs": 1800,
+    "maxReplyChars": 450,
+    "groupRequireAtOrWakeWord": true,
+    "wakeWords": [
+      "柳遥",
+      "Liuyao"
+    ],
+    "observeUnmentionedGroupMessages": true,
+    "maxMessageAgeSec": 15,
+    "conflictCheckPorts": [
+      3100
+    ]
+  },
+  "enableImageForward": true,
+  "stripMarkdown": true,
+  "voice": {
+    "enabled": false,
+    "sendTextWithVoice": true,
+    "directGsvUrl": "http://127.0.0.1:8765",
+    "character": "default"
+  },
+  "proactive": {
+    "enabled": false,
+    "targetUserId": "10001"
+  }
+}

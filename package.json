@@ -1,0 +1,25 @@
+{
+  "name": "soul-unto-you",
+  "version": "0.5.0",
+  "description": "《灵魂予你》/《灵魂与你》——包容万物与时空的永生陪伴型数字灵魂中枢与通用躯体连接协议。",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "start": "node src/server/main.ts",
+    "test": "node --test tests/*.test.ts",
+    "test:all": "node scripts/run-test-suite.ts --all",
+    "test:quick": "node scripts/run-test-suite.ts --quick",
+    "test:cross": "node --test tests/cross-verify.test.ts",
+    "test:stable": "node scripts/run-test-suite.ts --repeat=3",
+    "test:live": "node scripts/run-test-suite.ts --live",
+    "mcp": "node src/server/mcp-stdio.ts",
+    "import:surfcore": "node scripts/import-surfcore.ts",
+    "adapter:qq": "node adapters/qq-onebot/main.ts",
+    "check:mc": "node adapters/minecraft-mindcraft/check-bridge.ts",
+    "workbench": "cmd /c start-soul-test.cmd"
+  },
+  "dependencies": {}
+}

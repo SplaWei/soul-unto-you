@@ -1,0 +1,16 @@
+{
+  "specVersion": "1.0",
+  "soulId": "liuyao-demo",
+  "name": "柳遥 (Liuyao)",
+  "partnerName": "同行者",
+  "nextSeq": 5,
+  "awakenedCount": 1,
+  "lastDreamSeq": 0,
+  "createdAt": "2026-11-21T13:10:44.572Z",
+  "lastAwakenedAt": "2026-11-21T13:10:44.590Z",
+  "provenanceSummary": {
+    "verified": 4,
+    "inferred": 0,
+    "oral": 0
+  }
+}

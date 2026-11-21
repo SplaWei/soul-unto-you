@@ -1,0 +1,17 @@
+[
+  {
+    "entityId": "partner-primary",
+    "personId": "partner-primary",
+    "name": "同行者",
+    "role": "同行者",
+    "bondSummary": "开源示范档案中与柳遥跨端同行的伙伴。",
+    "familiarity": 78,
+    "provenance": "verified",
+    "updatedAt": "2026-11-21T13:10:44.594Z",
+    "aliases": [],
+    "handles": [],
+    "interactionCount": 0,
+    "tags": [],
+    "notes": []
+  }
+]
