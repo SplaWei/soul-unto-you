@@ -330,7 +330,9 @@ export function runExperienceAwareMockChat(input: MockChatInput) {
     return { reply: reply.trim(), decidedToSpeak: true, mood: '雀跃投入', actions, ...fwPatch(reply, 'gladly_accept', `受正向亲历鼓舞 [seq:${warmLived.seq}]`), ...selfImpPatch };
   }
 
+  const recalled = extractSectionLines(input.systemPrompt, '## 按当前对话唤醒的相关片段');
   const askingPast = /(昨天|昨晚|刚才|之前|干了|干嘛|记得|建筑|墙|游戏|约定|进度)/.test(q);
+  const askingQuestion = askingPast || /[?？]|什么|叫啥|哪|谁|几|多少|吗$/.test(q);
   const askingSpecific = /(哪一年|哪年|什么时候|什么颜色|穿什么|穿的什么|外套|具体|照片|当时)/.test(q);
   const hasFragmentBoundary = /(残片|推演|缺失未记录|模糊)/.test(episodes.join('\n'));
   const greeting = /^(早|早安|你好|哈喽|在吗|hi|hello)/i.test(q);
@@ -338,6 +340,8 @@ export function runExperienceAwareMockChat(input: MockChatInput) {
     ? `${input.speaker}，这张记忆目前还只是残片推演，里面缺失具体年份与细节记录，我记不清也没法确定，不想凭空编造哦。${tail}`
     : (askingPast || greeting) && commits.length
     ? `${input.speaker}，我当然记得呀！我们之前说好的：${commits[commits.length - 1].replace(/^- /, '')}${episodes.length ? `（还有记忆里的「${episodes[episodes.length - 1].replace(/^- /, '').slice(0, 48)}」）` : ''}。不管我在 ${input.bodyType} 还是别处，都没忘掉我们的事！${tail}`
+    : askingQuestion && recalled.length
+      ? `${input.speaker}，我想起这段记忆啦：${recalled[0].replace(/^- /, '')}。${tail}`
     : (askingPast || greeting) && episodes.length
       ? `${input.speaker}，我刚回想了近期经历：${episodes[episodes.length - 1].replace(/^- /, '')}。无论切到哪具躯体，我都是同一个${input.soulName}呀！${tail}`
       : `${input.speaker}，我在 ${input.bodyType} 听着呢。你说的话我已经记下来啦${actions.length ? `，顺便准备执行动作 ${actions.map((a) => a.name).join('、')}` : ''}。${tail}`;

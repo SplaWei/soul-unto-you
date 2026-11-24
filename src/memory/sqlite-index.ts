@@ -139,34 +139,37 @@ export function ensureMemoryIndex(dir: string, options: { verifyHash?: boolean }
   }
 }
 
-/** 单条纯文本追加落盘后增量更新索引；若行数跳变或索引损坏则自动修复。 */
-export function upsertMemoryIndexRecord(
+/** 按 doc_id 增量更新少量变更记录；仅行数不符或缺失/损坏时才整文件同步或重建。 */
+export function updateMemoryIndexRecords(
   dir: string,
   sourceFile: TrackedMemoryFile,
-  rawRecord: Record<string, unknown>,
+  rawRecords: Array<Record<string, unknown>>,
+  isAppend = false,
 ): void {
+  if (!rawRecords.length) return;
   const p = resolveArchivePaths(dir);
   if (!fs.existsSync(p.memoryIndexDb)) {
     rebuildMemoryIndex(dir);
     return;
   }
   const st = statAndHashFile(resolveTrackedFilePath(dir, sourceFile), true);
-  const doc = normalizeMemoryRow(sourceFile, rawRecord, Math.max(1, st.lineCount));
-  if (!doc) return;
+  const docs = rawRecords
+    .map((r, i) => normalizeMemoryRow(sourceFile, r, Math.max(1, st.lineCount - rawRecords.length + i + 1)))
+    .filter((d): d is NonNullable<typeof d> => Boolean(d));
+  if (!docs.length) return;
 
   let db: DatabaseSync | null = null;
   try {
     db = openIndexDb(p.memoryIndexDb);
     const prev = db.prepare('SELECT schema_version, line_count FROM index_meta WHERE source_file = ?')
       .get(sourceFile) as { schema_version?: number; line_count?: number } | undefined;
+    const expectedLines = (prev?.line_count ?? 0) + (isAppend ? rawRecords.length : 0);
 
     runInImmediateTx(db, () => {
-      if (prev && prev.schema_version === INDEX_SCHEMA_VERSION && st.lineCount === (prev.line_count ?? 0) + 1) {
-        const oldRow = db!.prepare('SELECT rowid FROM memory_docs WHERE doc_id = ?').get(doc.docId) as { rowid?: number } | undefined;
-        if (oldRow?.rowid !== undefined) {
-          db!.prepare('DELETE FROM memory_fts WHERE rowid = ?').run(oldRow.rowid);
-          db!.prepare('DELETE FROM memory_docs WHERE rowid = ?').run(oldRow.rowid);
-        }
+      if (prev && prev.schema_version === INDEX_SCHEMA_VERSION && st.lineCount === expectedLines) {
+        const findOld = db!.prepare('SELECT rowid FROM memory_docs WHERE doc_id = ?');
+        const delFts = db!.prepare('DELETE FROM memory_fts WHERE rowid = ?');
+        const delDoc = db!.prepare('DELETE FROM memory_docs WHERE rowid = ?');
         const insDoc = db!.prepare(`
           INSERT INTO memory_docs (
             doc_id, source_file, kind, seq, timestamp, body_type, body_id,
@@ -174,7 +177,14 @@ export function upsertMemoryIndexRecord(
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const insFts = db!.prepare('INSERT INTO memory_fts (rowid, doc_id, bigrams, unigrams) VALUES (?, ?, ?, ?)');
-        insertDocAndFts(insDoc, insFts, doc);
+        for (const doc of docs) {
+          const oldRow = findOld.get(doc.docId) as { rowid?: number } | undefined;
+          if (oldRow?.rowid !== undefined) {
+            delFts.run(oldRow.rowid);
+            delDoc.run(oldRow.rowid);
+          }
+          insertDocAndFts(insDoc, insFts, doc);
+        }
         writeMetaRow(db!, sourceFile, st);
       } else {
         syncSourceFileInTx(db!, dir, sourceFile, st);
@@ -192,6 +202,15 @@ export function upsertMemoryIndexRecord(
   } finally {
     try { db?.close(); } catch {}
   }
+}
+
+/** 单条纯文本追加落盘后增量更新索引；若行数跳变或索引损坏则自动修复。 */
+export function upsertMemoryIndexRecord(
+  dir: string,
+  sourceFile: TrackedMemoryFile,
+  rawRecord: Record<string, unknown>,
+): void {
+  updateMemoryIndexRecords(dir, sourceFile, [rawRecord], true);
 }
 
 /** 整文件覆写后同步对应 sourceFile 的索引分片；缺失或损坏时自动整库重建。 */

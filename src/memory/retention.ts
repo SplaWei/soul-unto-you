@@ -12,7 +12,7 @@ import type {
   MemoryEngraveEvent, MemoryEpisode, RecallChannel,
 } from '../soul/types.ts';
 import { lexicalSimilarity } from './experience.ts';
-import { syncMemoryIndexFile } from './sqlite-index.ts';
+import { searchMemoryIndex, syncMemoryIndexFile, updateMemoryIndexRecords } from './sqlite-index.ts';
 import { addEpisode, renderEpisodesMarkdown } from './store.ts';
 import { cosineSimilarity } from './vector-store.ts';
 
@@ -102,10 +102,19 @@ function saveJsonl<T>(filePath: string, items: T[]): void {
   writeTextAtomic(filePath, items.map((item) => JSON.stringify(item)).join('\n') + (items.length ? '\n' : ''));
 }
 
-function persistEpisodes(dir: string, episodes: MemoryEpisode[], fallbackName = 'Soul'): void {
+function persistEpisodes(
+  dir: string,
+  episodes: MemoryEpisode[],
+  fallbackName = 'Soul',
+  changedEpisodes?: MemoryEpisode[],
+): void {
   const p = resolveArchivePaths(dir);
   saveJsonl(p.episodesJsonl, episodes);
-  syncMemoryIndexFile(dir, 'episodes.jsonl');
+  if (changedEpisodes?.length) {
+    updateMemoryIndexRecords(dir, 'episodes.jsonl', changedEpisodes as unknown as Record<string, unknown>[]);
+  } else {
+    syncMemoryIndexFile(dir, 'episodes.jsonl');
+  }
   const size = fs.existsSync(p.episodesJsonl) ? fs.statSync(p.episodesJsonl).size : 0;
   if (size <= LARGE_JSONL_BYTES) {
     const meta = readJsonObjectSafe<{ name?: string }>(p.meta, {});
@@ -133,7 +142,7 @@ function applyReinforcementBatch<T extends Reinforceable>(
 ): number {
   if (!hitNowById.size) return 0;
   const list = readJsonlSafe<T>(filePath);
-  let updated = 0;
+  const changed: T[] = [];
   for (const item of list) {
     const hitNowMs = hitNowById.get(item.id);
     if (hitNowMs === undefined) continue;
@@ -145,16 +154,16 @@ function applyReinforcementBatch<T extends Reinforceable>(
     item.strength = computeNextStrengthOnRecall(prevS, deltaDays, item.arousal ?? 0.25);
     item.recallCount = (item.recallCount ?? 0) + 1;
     item.lastRecalledAt = new Date(hitNowMs).toISOString();
-    updated += 1;
+    changed.push(item);
   }
-  if (updated > 0) {
+  if (changed.length > 0) {
     saveJsonl(filePath, list);
     const base = path.basename(filePath);
     if (base === 'episodes.jsonl' || base === 'experiences.jsonl') {
-      syncMemoryIndexFile(path.dirname(path.dirname(filePath)), base);
+      updateMemoryIndexRecords(path.dirname(path.dirname(filePath)), base, changed as unknown as Record<string, unknown>[]);
     }
   }
-  return updated;
+  return changed.length;
 }
 
 export function flushPendingReinforcements(filePath?: string): void {
@@ -249,28 +258,45 @@ export function engraveMemoryFromTurn(
   const nowIso = new Date(nowMs).toISOString();
   const sig = estimateEmotionSignals(cleanText);
   const p = resolveArchivePaths(dir);
-  const episodes = readJsonlSafe<MemoryEpisode>(p.episodesJsonl);
   const partnerJournal = readJsonlSafe<JournalEntry>(p.journal, 120).filter((j) => j.role === 'partner');
   const priorPartner = partnerJournal.length && partnerJournal[partnerJournal.length - 1].text.trim() === cleanText
     ? partnerJournal.slice(0, -1) : partnerJournal;
 
-  let matchedEpisode: MemoryEpisode | null = null;
+  let matchedEpisodeId: string | null = null;
   let bestMatchScore = 0;
   let priorMatchCount = 0;
   if (!sig.isTrivial && cleanText.length >= 5) {
-    for (const ep of episodes) {
-      if (ep.importance <= 30 && (ep.arousal ?? 0) <= 0.15) continue;
-      const lex = lexicalSimilarity(cleanText, `${ep.title} ${ep.summary}`);
-      const vec = params.queryVec && params.vectorMap?.[ep.id] ? cosineSimilarity(params.queryVec, params.vectorMap[ep.id]) : 0;
+    const extraDocIds: string[] = [];
+    if (params.queryVec && params.vectorMap) {
+      for (const [id, vec] of Object.entries(params.vectorMap)) {
+        if (cosineSimilarity(params.queryVec, vec) >= 0.86) extraDocIds.push(`episode:${id}`);
+      }
+    }
+    const idxRes = searchMemoryIndex(dir, cleanText, { candidateLimit: 40, recentEpisodeLimit: 0, extraDocIds });
+    const seenIds = new Set<string>();
+    for (const row of [...idxRes.hits, ...idxRes.extraDocs]) {
+      if (row.kind !== 'episode' || row.status !== 'active' || seenIds.has(row.docId)) continue;
+      seenIds.add(row.docId);
+      let meta: Record<string, unknown> = {};
+      try { meta = JSON.parse(row.metaJson) as Record<string, unknown>; } catch {}
+      const epId = typeof meta.id === 'string' && meta.id ? meta.id : row.docId.replace(/^episode:/, '');
+      const imp = Number.isFinite(Number(meta.importance)) ? Number(meta.importance) : 65;
+      const arousal = typeof meta.arousal === 'number' ? meta.arousal : 0;
+      if (imp <= 30 && arousal <= 0.15) continue;
+      const lex = lexicalSimilarity(cleanText, `${row.title} ${row.text}`);
+      const vec = params.queryVec && params.vectorMap?.[epId] ? cosineSimilarity(params.queryVec, params.vectorMap[epId]) : 0;
       const hitScore = Math.max(lex, vec);
-      if ((lex >= 0.42 || vec >= 0.86) && hitScore > bestMatchScore) { bestMatchScore = hitScore; matchedEpisode = ep; }
+      if ((lex >= 0.42 || vec >= 0.86) && hitScore > bestMatchScore) {
+        bestMatchScore = hitScore;
+        matchedEpisodeId = epId;
+      }
     }
     for (const j of priorPartner) {
       if (lexicalSimilarity(cleanText, j.text) >= 0.45) priorMatchCount += 1;
     }
   }
 
-  const isRepeated = !sig.isTrivial && cleanText.length >= 5 && (Boolean(matchedEpisode) || priorMatchCount >= 1);
+  const isRepeated = !sig.isTrivial && cleanText.length >= 5 && (Boolean(matchedEpisodeId) || priorMatchCount >= 1);
   const isSelfImportant = Boolean(params.selfImportant);
   const channels: Array<'user_pinned' | 'repeated_mention' | 'self_important'> = [];
   if (sig.userPinned) channels.push('user_pinned');
@@ -279,6 +305,8 @@ export function engraveMemoryFromTurn(
   if (!channels.length) return null;
 
   const channelTags = channels.map((c) => c.replace('_', '-'));
+  const episodes = matchedEpisodeId ? readJsonlSafe<MemoryEpisode>(p.episodesJsonl) : [];
+  const matchedEpisode = matchedEpisodeId ? (episodes.find((e) => e.id === matchedEpisodeId) ?? null) : null;
   if (matchedEpisode) {
     matchedEpisode.userPinned = Boolean(matchedEpisode.userPinned || sig.userPinned);
     matchedEpisode.selfImportant = Boolean(matchedEpisode.selfImportant || isSelfImportant);
@@ -292,7 +320,7 @@ export function engraveMemoryFromTurn(
     matchedEpisode.strength = Number(Math.min(3650, Math.max(floorS, (matchedEpisode.strength ?? floorS) + bonus)).toFixed(2));
     matchedEpisode.lastRecalledAt = nowIso;
     matchedEpisode.tags = Array.from(new Set([...(matchedEpisode.tags ?? []), ...channelTags]));
-    persistEpisodes(dir, episodes, params.soulName);
+    persistEpisodes(dir, episodes, params.soulName, [matchedEpisode]);
     const ret = computeRetention(matchedEpisode, nowMs);
     return { episodeId: matchedEpisode.id, seq: matchedEpisode.seq, title: matchedEpisode.title, channels, strength: ret.strength, retentionPct: ret.retentionPct, reason: params.selfImportantReason || channels.join('+') };
   }
@@ -325,6 +353,6 @@ export function pinEpisodeById(
   const floorS = computeInitialStrength(target);
   target.strength = Number(Math.min(3650, Math.max(floorS, (target.strength ?? floorS) + 25)).toFixed(2));
   target.lastRecalledAt = new Date(nowMs).toISOString();
-  persistEpisodes(dir, episodes);
+  persistEpisodes(dir, episodes, 'Soul', [target]);
   return { episode: target, retention: computeRetention(target, nowMs) };
 }

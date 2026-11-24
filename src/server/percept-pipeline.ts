@@ -56,7 +56,7 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
   const snap = await ctx.presence.withSoulLock(async () => {
     const activeDir = ctx.config.archiveDir;
     const startEpoch = ctx.presence.getEpoch();
-    const archive = loadSoulArchive(activeDir, 10);
+    const archive = loadSoulArchive(activeDir, 10, 5);
     const actualSpeaker = speaker || archive.identity.partnerName || '同行者';
     const bodyReg = ctx.presence.getBody(bodyId);
     const activePerson = resolveAndRecordSpeaker(activeDir, {
@@ -209,7 +209,7 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
   const snap = await ctx.presence.withSoulLock(async () => {
     const activeDir = ctx.config.archiveDir;
     const startEpoch = ctx.presence.getEpoch();
-    const archive = loadSoulArchive(activeDir, 10);
+    const archive = loadSoulArchive(activeDir, 10, 5);
     const bodyReg = ctx.presence.getBody(bodyId);
     const sameDir = activeDir === prefetchDir;
     // 先召回后落盘当前观察目击，避免同一条观察在同一轮 prompt 里出现三次。
@@ -311,7 +311,7 @@ async function executeProactive(
   const snap = await runInLock(async () => {
     const activeDir = ctx.config.archiveDir;
     const startEpoch = ctx.presence.getEpoch();
-    const archive = loadSoulArchive(activeDir, 10);
+    const archive = loadSoulArchive(activeDir, 10, 5);
     const bodyReg = ctx.presence.getBody(bodyId);
     const sameDir = activeDir === prefetchDir;
     const recalledCtx = await buildRecallContext({

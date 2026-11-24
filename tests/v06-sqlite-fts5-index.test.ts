@@ -126,9 +126,10 @@ test('A3-2 主人验收闭环：记住橘猫土豆 -> 顶出近期窗口 -> 删�
       method: 'POST', headers, body: JSON.stringify({ bodyId: 'web-1', bodyType: 'web', text: '我的猫叫什么？' }),
     });
     assert.equal(askRes.status, 200);
-    const askJson = (await askRes.json()) as { ok: boolean; recalled: Array<{ text: string }> };
+    const askJson = (await askRes.json()) as { ok: boolean; reply: string; recalled: Array<{ text: string }> };
     assert.equal(askJson.ok, true);
     assert.ok(askJson.recalled.some((r) => r.text.includes('土豆') && r.text.includes('橘猫')), '必须召回橘猫土豆记录');
+    assert.ok(askJson.reply.includes('土豆') || askJson.reply.includes('橘猫'), `真实回复必须包含土豆或橘猫，实际=${askJson.reply}`);
 
     const sysPrompt = hub2.ctx.lastPrompt?.systemPrompt || '';
     assert.ok(sysPrompt.includes('按当前对话唤醒的相关片段'), '应从全量历史碎片中唤醒而非依赖最近14条时间线');
@@ -208,9 +209,10 @@ test('A3-4 快照回滚清缓存防幽灵记忆 & FTS5 特殊字符/注入防护
   }
 });
 
-test('A3-5 万级记忆 FTS5 检索耗时 < 50ms 硬指标验证', async () => {
+test('A3-5 万级记忆 FTS5 检索耗时 < 50ms 与整轮 buildRecallContext 真实耗时验证', async () => {
   const bench = await runJsonl10kBenchmark(10_000);
   assert.equal(bench.fullCount, 10_000);
   assert.equal(bench.topRecalledTitle, '星海天文台约定');
   assert.ok(bench.recall10kMs < 50, `万级 FTS5 检索目标 <50ms，实测 ${bench.recall10kMs}ms`);
+  assert.ok(bench.buildRecallContext10kMs < 250, `万级整轮 buildRecallContext(reinforce:true) 实测应 <250ms，实际 ${bench.buildRecallContext10kMs}ms`);
 });

@@ -285,7 +285,7 @@ export function updateSoulIdentity(
   return loadSoulArchive(dir, 10);
 }
 
-export function loadSoulArchive(dir: string, journalLimit = 40): SoulArchiveData {
+export function loadSoulArchive(dir: string, journalLimit = 40, episodeLimit = 0): SoulArchiveData {
   const p = resolveArchivePaths(dir);
   const hasMetaOrId = fs.existsSync(p.meta) || fs.existsSync(path.join(p.root, 'identity.json'));
   const meta: SoulMeta = hasMetaOrId
@@ -305,7 +305,7 @@ export function loadSoulArchive(dir: string, journalLimit = 40): SoulArchiveData
     evolvingSelfMarkdown: fs.existsSync(p.evolvingSelf) ? fs.readFileSync(p.evolvingSelf, 'utf8') : '',
     seedMarkdown: fs.existsSync(p.seed) ? fs.readFileSync(p.seed, 'utf8') : '',
     resurrectionMarkdown: fs.existsSync(p.resurrection) ? fs.readFileSync(p.resurrection, 'utf8') : '',
-    episodes: readJsonlSafe<MemoryEpisode>(p.episodesJsonl),
+    episodes: readJsonlSafe<MemoryEpisode>(p.episodesJsonl, episodeLimit),
     commitments: readJsonArraySafe<Commitment>(p.commitments, []),
     relations: readJsonArraySafe(p.relations, []),
     coBecoming: readJsonlSafe<CoBecomingNote>(p.coBecoming),

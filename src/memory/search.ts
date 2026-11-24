@@ -139,7 +139,7 @@ export async function buildRecallContext(params: {
   const enableEmotion = Boolean(exp.enableEmotion);
   const enableInnerLife = Boolean(exp.enableInnerLife);
   const enableFreeWill = Boolean(exp.enableFreeWill);
-  const archive = loadSoulArchive(params.archiveDir, 40);
+  const archive = loadSoulArchive(params.archiveDir, 40, 20);
   const drives = enableInnerLife ? loadDrives(params.archiveDir) : undefined;
   const emotion = enableEmotion ? loadEmotionState(params.archiveDir, nowMs) : undefined;
   const activeDesires = enableInnerLife ? listDesires(params.archiveDir).filter((d) => d.status === 'active') : [];
