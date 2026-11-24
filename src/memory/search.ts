@@ -23,13 +23,19 @@ import {
   syncVectorIndex, syncVectorIndexDetailed,
   type EmbeddingConfig, type EmbeddingHealthReport, type VectorSyncReport,
 } from './vector-store.ts';
+import {
+  ensureMemoryIndex, getMemoryIndexStatus, rebuildMemoryIndex, searchMemoryIndex,
+  type IndexedDocRow, type IndexedFtsHit, type MemoryIndexSearchResult, type MemoryIndexSyncReport,
+} from './sqlite-index.ts';
 
 export {
   BUILTIN_HYBRID_RETRIEVER, BuiltinHybridRetriever, checkEmbeddingHealth, cosineSimilarity,
-  createHttpMemoryRetriever, executeRetrievalWithFallback, fetchEmbeddings, getMemoryRetriever,
-  lexicalSimilarity, listMemoryRetrievers, registerMemoryRetriever, resolveConfiguredRetriever,
+  createHttpMemoryRetriever, ensureMemoryIndex, executeRetrievalWithFallback, fetchEmbeddings,
+  getMemoryIndexStatus, getMemoryRetriever, lexicalSimilarity, listMemoryRetrievers,
+  rebuildMemoryIndex, registerMemoryRetriever, resolveConfiguredRetriever, searchMemoryIndex,
   syncVectorIndex, syncVectorIndexDetailed, tokenizeText, unregisterMemoryRetriever,
-  type EmbeddingConfig, type EmbeddingHealthReport, type MemoryRetrievalRequest,
+  type EmbeddingConfig, type EmbeddingHealthReport, type IndexedDocRow, type IndexedFtsHit,
+  type MemoryIndexSearchResult, type MemoryIndexSyncReport, type MemoryRetrievalRequest,
   type MemoryRetrievalResult, type MemoryRetriever, type MemoryRetrieverHealth,
   type RecallTrace, type RecalledItem, type RetrieverConfig, type VectorSyncReport,
 };

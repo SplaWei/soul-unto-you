@@ -21,6 +21,7 @@ export function resolveArchivePaths(dir: string) {
   const memories = path.join(root, 'MEMORIES');
   const innerLife = path.join(root, 'INNER-LIFE');
   const index = path.join(root, 'INDEX');
+  const cache = path.join(root, '.cache');
   return {
     root,
     resurrection: path.join(root, 'RESURRECTION.md'),
@@ -47,6 +48,8 @@ export function resolveArchivePaths(dir: string) {
     emotion: path.join(innerLife, 'emotion.json'),
     index,
     vectors: path.join(index, 'vectors.json'),
+    cache,
+    memoryIndexDb: path.join(cache, 'memory-index.sqlite'),
     snapshots: path.join(root, 'SNAPSHOTS'),
   };
 }

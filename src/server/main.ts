@@ -7,6 +7,7 @@ import { runDreamConsolidation } from '../memory/dream.ts';
 import { AutoDreamScheduler, type DreamSchedulerConfig } from '../memory/dream-scheduler.ts';
 import { flushPendingReinforcements } from '../memory/retention.ts';
 import { resolveConfiguredRetriever, type MemoryRetriever } from '../memory/search.ts';
+import { ensureMemoryIndex } from '../memory/sqlite-index.ts';
 import { runSoulHeartbeat } from '../presence/heartbeat.ts';
 import { PresenceManager } from '../presence/manager.ts';
 import {
@@ -70,7 +71,7 @@ export function createDemoIdentity(): SoulIdentity {
 }
 
 function copyDemoTemplate(srcDir: string, destDir: string): void {
-  const skipTop = new Set(['INDEX', 'SNAPSHOTS', 'INNER-LIFE']);
+  const skipTop = new Set(['INDEX', 'SNAPSHOTS', 'INNER-LIFE', '.cache']);
   fs.mkdirSync(destDir, { recursive: true });
   for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
     if (skipTop.has(entry.name)) continue;
@@ -108,6 +109,7 @@ export function ensureArchiveReady(dir: string): void {
   if (!seedRaw.startsWith(FIRST_AWAKENING_HEADER) || Buffer.byteLength(seedRaw, 'utf8') > SEED_MAX_BYTES) {
     throw new Error('当前档案 SEED.md 不符合创世契约');
   }
+  ensureMemoryIndex(dir, { verifyHash: true });
 }
 
 function serveStaticWeb(req: http.IncomingMessage, reqPath: string, res: http.ServerResponse, apiToken: string): boolean {

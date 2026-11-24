@@ -253,6 +253,9 @@ function applySnapshotFiles(dir: string, snapshotId: string, manifest: SnapshotM
     }
   }
   fs.rmSync(p.vectors, { force: true });
+  for (const f of [p.memoryIndexDb, `${p.memoryIndexDb}-wal`, `${p.memoryIndexDb}-shm`, `${p.memoryIndexDb}-journal`]) {
+    fs.rmSync(f, { force: true });
+  }
   return removedExtraFiles;
 }
 

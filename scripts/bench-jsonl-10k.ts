@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { recallMemories } from '../src/memory/search.ts';
+import { ensureMemoryIndex } from '../src/memory/sqlite-index.ts';
 import { initSoulArchive, loadSoulArchive, readJsonlSafe, resolveArchivePaths, writeJsonAtomic } from '../src/soul/archive.ts';
 import { awakenSoul } from '../src/soul/awakening.ts';
 import { exportSoulArchive } from '../src/soul/export.ts';
@@ -16,6 +17,7 @@ export interface Jsonl10kBenchmarkResult {
   tailJournal40Ms: number;
   fullEpisodesScanMs: number;
   loadArchiveMs: number;
+  indexBuild10kMs: number;
   recall10kMs: number;
   snapshot10kMs: number;
   exportRedacted10kMs: number;
@@ -87,6 +89,10 @@ export async function runJsonl10kBenchmark(count = 10_000): Promise<Jsonl10kBenc
     loadSoulArchive(dir, 40);
     const loadArchiveMs = roundMs(performance.now() - t2);
 
+    const tIdx = performance.now();
+    ensureMemoryIndex(dir, { verifyHash: true });
+    const indexBuild10kMs = roundMs(performance.now() - tIdx);
+
     const t3 = performance.now();
     const hits = await recallMemories(dir, '星海天文台约定', { topK: 6, reinforce: false });
     const recall10kMs = roundMs(performance.now() - t3);
@@ -101,7 +107,7 @@ export async function runJsonl10kBenchmark(count = 10_000): Promise<Jsonl10kBenc
 
     return {
       count, journalBytes, episodesBytes,
-      tailJournal40Ms, fullEpisodesScanMs, loadArchiveMs, recall10kMs, snapshot10kMs, exportRedacted10kMs,
+      tailJournal40Ms, fullEpisodesScanMs, loadArchiveMs, indexBuild10kMs, recall10kMs, snapshot10kMs, exportRedacted10kMs,
       tailCount: tail.length, tailLastSeq: tail[tail.length - 1]?.seq ?? 0,
       fullCount: full.length, topRecalledTitle: hits[0]?.title || '',
     };
@@ -118,7 +124,8 @@ if (isMain) {
     console.log(`- 尾部40条读取 (tailRead): ${r.tailJournal40Ms} ms (返回 ${r.tailCount} 条, 末seq=${r.tailLastSeq})`);
     console.log(`- 万条情景全量扫盘 (fullScan): ${r.fullEpisodesScanMs} ms (返回 ${r.fullCount} 条)`);
     console.log(`- 完整档案加载 (loadSoulArchive): ${r.loadArchiveMs} ms`);
-    console.log(`- 万条情景混合召回 (recallMemories): ${r.recall10kMs} ms (Top1: ${r.topRecalledTitle})`);
+    console.log(`- 万条记忆建库耗时 (SQLite FTS5): ${r.indexBuild10kMs} ms`);
+    console.log(`- 万条情景 FTS5 混合召回 (recallMemories): ${r.recall10kMs} ms (Top1: ${r.topRecalledTitle})`);
     console.log(`- 万级档案打快照 (createSnapshot): ${r.snapshot10kMs} ms`);
     console.log(`- 万级档案脱敏导出 (exportSoulArchive): ${r.exportRedacted10kMs} ms`);
   });

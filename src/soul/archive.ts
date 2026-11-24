@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { upsertMemoryIndexRecord } from '../memory/sqlite-index.ts';
 import { FIRST_AWAKENING_HEADER, PROVENANCE_LABELS, SEED_MAX_BYTES, SPEC_VERSION, clampUtf8Bytes } from './covenant.ts';
 import {
   appendJsonlLine, isValidMeta, readJsonArraySafe, readJsonArrayStrict, readJsonObjectSafe, readJsonObjectStrict, readJsonSafe,
@@ -223,6 +224,7 @@ export function appendJournal(dir: string, entry: Omit<JournalEntry, 'seq' | 'ti
     ...(entry.metadata ? { metadata: entry.metadata } : {}),
   };
   appendJsonlLine(p.journal, full);
+  upsertMemoryIndexRecord(dir, 'journal.jsonl', full as unknown as Record<string, unknown>);
   return full;
 }
 

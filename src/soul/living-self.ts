@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { syncMemoryIndexFile, upsertMemoryIndexRecord } from '../memory/sqlite-index.ts';
 import {
   DEFAULT_SOUL_DRIVES,
   allocateSeq,
@@ -85,6 +86,7 @@ export function upsertTemporalBelief(
     existing.evidenceSeqs = Array.from(new Set([...existing.evidenceSeqs, ...(input.evidenceSeqs ?? [])]));
     existing.updatedAt = new Date().toISOString();
     writeTextAtomic(p.beliefs, all.map((b) => JSON.stringify(b)).join('\n') + '\n');
+    syncMemoryIndexFile(dir, 'beliefs.jsonl');
     renderEvolvingSelfMarkdown(dir);
     return existing;
   }
@@ -108,6 +110,7 @@ export function upsertTemporalBelief(
   }
   all.push(next);
   writeTextAtomic(p.beliefs, all.map((b) => JSON.stringify(b)).join('\n') + '\n');
+  syncMemoryIndexFile(dir, 'beliefs.jsonl');
   renderEvolvingSelfMarkdown(dir);
   return next;
 }
@@ -135,6 +138,7 @@ export function recordSelfEvolution(
     evidenceSeqs: input.evidenceSeqs ?? [],
   };
   appendJsonlLine(p.selfEvolution, note);
+  upsertMemoryIndexRecord(dir, 'self-evolution.jsonl', note as unknown as Record<string, unknown>);
   renderEvolvingSelfMarkdown(dir);
   return note;
 }
@@ -166,6 +170,7 @@ function mergeEvolutionEvidence(dir: string, candidateTrait: string, expSeq?: nu
     if (target) {
       target.evidenceSeqs.push(expSeq);
       writeTextAtomic(p.selfEvolution, all.map((n) => JSON.stringify(n)).join('\n') + '\n');
+      syncMemoryIndexFile(dir, 'self-evolution.jsonl');
       renderEvolvingSelfMarkdown(dir);
       return target;
     }
@@ -319,6 +324,8 @@ export function resetLivingSelf(dir: string): void {
   });
   writeTextAtomic(p.beliefs, '');
   writeTextAtomic(p.selfEvolution, '');
+  syncMemoryIndexFile(dir, 'beliefs.jsonl');
+  syncMemoryIndexFile(dir, 'self-evolution.jsonl');
   writeTextAtomic(p.evolvingSelf, `# ${identity.name} · 活体自我演化快照 (EVOLVING-SELF.md)\n\n- 刚起步：仍在通过亲身实践与同伴磨合认识世界。\n`);
 }
 

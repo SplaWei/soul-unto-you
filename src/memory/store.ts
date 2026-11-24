@@ -22,6 +22,7 @@ import type {
 } from '../soul/types.ts';
 import { upsertPersonRelation } from './relations.ts';
 import { computeInitialStrength } from './retention.ts';
+import { upsertMemoryIndexRecord } from './sqlite-index.ts';
 
 export { renderEpisodesMarkdown };
 
@@ -90,6 +91,7 @@ export function addEpisode(
     ...(input.selfImportantReason ? { selfImportantReason: input.selfImportantReason.trim() } : {}),
   };
   appendJsonlLine(p.episodesJsonl, ep);
+  upsertMemoryIndexRecord(dir, 'episodes.jsonl', ep as unknown as Record<string, unknown>);
   if (!input.skipRefresh) {
     const fileSize = fs.existsSync(p.episodesJsonl) ? fs.statSync(p.episodesJsonl).size : 0;
     if (fileSize <= LARGE_EPISODES_BYTES) {
@@ -204,6 +206,7 @@ export function addCoBecoming(
     provenance,
   };
   appendJsonlLine(p.coBecoming, note);
+  upsertMemoryIndexRecord(dir, 'co-becoming.jsonl', note as unknown as Record<string, unknown>);
   if (!input.skipRefresh) refreshDerivedSoulFiles(dir, { syncEpisodesMd: false });
   return note;
 }

@@ -10,6 +10,7 @@ import {
 import { createSnapshot } from '../soul/snapshot.ts';
 import type { BodyType, ExperienceOrigin, FreeWillStance, LivedExperience, Provenance } from '../soul/types.ts';
 import { computeInitialStrength, computeRetention } from './retention.ts';
+import { syncMemoryIndexFile, upsertMemoryIndexRecord } from './sqlite-index.ts';
 import { cosineSimilarity } from './vector-store.ts';
 
 export interface RecordExperienceInput {
@@ -116,6 +117,7 @@ export function recordExperience(dir: string, input: RecordExperienceInput): Liv
   };
 
   appendJsonlLine(p.experiences, exp);
+  upsertMemoryIndexRecord(dir, 'experiences.jsonl', exp as unknown as Record<string, unknown>);
   applyExperienceToInnerLife(dir, exp, nowMs);
   evolveSelfFromExperience(dir, exp);
   return exp;
@@ -182,6 +184,7 @@ export function clearExperiences(dir: string): number {
   const p = resolveArchivePaths(dir);
   const existing = readJsonlSafe<LivedExperience>(p.experiences);
   writeTextAtomic(p.experiences, '');
+  syncMemoryIndexFile(dir, 'experiences.jsonl');
   return existing.length;
 }
 

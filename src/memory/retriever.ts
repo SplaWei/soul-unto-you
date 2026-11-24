@@ -1,34 +1,14 @@
 import crypto from 'node:crypto';
-import { loadSoulArchive } from '../soul/archive.ts';
-import type { BodyType, LivedExperience, Provenance, RecallChannel, SoulArchiveData } from '../soul/types.ts';
-import { lexicalSimilarityFromTokens, recallExperiences, tokenizeText } from './experience.ts';
-import { computeRetention, describeRecallReasons } from './retention.ts';
+import type { BodyType, LivedExperience, RecallChannel, SoulArchiveData } from '../soul/types.ts';
+import { recallExperiences, tokenizeText } from './experience.ts';
+import { ensureMemoryIndex, getMemoryIndexStatus, searchMemoryIndex } from './sqlite-index.ts';
+import { normalizeProvenance, numOr, scoreIndexedMemoryCandidates, type RecalledItem } from './sqlite-scorer.ts';
 import {
   checkEmbeddingHealth, cosineSimilarity, fetchEmbeddings, loadVectorIndex,
   syncVectorIndexDetailed, type EmbeddingConfig,
 } from './vector-store.ts';
 
-export interface RecalledItem {
-  id?: string;
-  kind: 'episode' | 'journal';
-  seq: number;
-  score: number;
-  bodyType: BodyType;
-  provenance: Provenance;
-  timestamp: string;
-  title: string;
-  text: string;
-  retentionPct: number;
-  strength: number;
-  recallCount: number;
-  mentionCount: number;
-  semanticSim: number;
-  lexicalSim: number;
-  userPinned?: boolean;
-  selfImportant?: boolean;
-  recallReason: string;
-  recallChannels: RecallChannel[];
-}
+export type { RecalledItem };
 
 export interface MemoryRetrievalRequest {
   archiveDir: string;
@@ -85,14 +65,9 @@ export interface RetrieverConfig {
   timeoutMs?: number;
 }
 
-const VALID_PROVENANCES = new Set<Provenance>(['verified', 'inferred', 'oral']);
-const normalizeProvenance = (raw: unknown): Provenance => (VALID_PROVENANCES.has(String(raw ?? '').trim() as Provenance) ? String(raw).trim() as Provenance : 'inferred');
-const provenanceWeight = (p: Provenance): number => (p === 'verified' ? 1.0 : p === 'oral' ? 0.9 : 0.85);
-const numOr = (v: unknown, fb: number): number => (Number.isFinite(Number(v)) ? Number(v) : fb);
-
 export class BuiltinHybridRetriever implements MemoryRetriever {
   readonly id = 'builtin-hybrid';
-  readonly name = '内置混合检索 (词法+向量+艾宾浩斯)';
+  readonly name = '内置混合检索 (FTS5+词法+向量+艾宾浩斯)';
   readonly isExternal = false;
 
   async prefetch(req: Pick<MemoryRetrievalRequest, 'archiveDir' | 'query' | 'embedding'>) {
@@ -107,7 +82,6 @@ export class BuiltinHybridRetriever implements MemoryRetriever {
   }
 
   async retrieve(req: MemoryRetrievalRequest): Promise<MemoryRetrievalResult> {
-    const archive = req.archive ?? loadSoulArchive(req.archiveDir, 150);
     const topK = req.topK ?? 6;
     const nowMs = req.nowMs ?? Date.now();
     let vectorMap = req.vectorMap ?? null;
@@ -117,49 +91,29 @@ export class BuiltinHybridRetriever implements MemoryRetriever {
       queryVec = (await fetchEmbeddings([req.query], req.embedding))?.[0] ?? null;
     }
 
-    const candidates: RecalledItem[] = [];
-    const queryTokens = tokenizeText(req.query);
-    for (const ep of archive.episodes) {
-      const ret = computeRetention(ep, nowMs);
-      const lex = lexicalSimilarityFromTokens(queryTokens, `${ep.title} ${ep.summary}`);
-      const vec = queryVec && vectorMap?.[ep.id] ? cosineSimilarity(queryVec, vectorMap[ep.id]) : 0;
-      const imp = Math.min(1, Math.max(0, ep.importance / 100));
-      const hasRelevance = lex > 0 || vec >= 0.3;
-      const rawEngrave = (ep.userPinned ? 0.1 : 0) + (ep.selfImportant ? 0.1 : 0) + Math.min(0.1, Math.max(0, (ep.mentionCount ?? 1) - 1) * 0.04);
-      const engraveBoost = hasRelevance ? rawEngrave : 0;
-      const relevance = queryVec ? 0.52 * vec + 0.2 * lex : 0.56 * lex;
-      const rawTrace = 0.18 * ret.retention + 0.1 * imp + engraveBoost * (0.4 + 0.6 * ret.retention);
-      const memoryTrace = hasRelevance ? rawTrace : rawTrace * 0.25;
-      const score = (relevance + memoryTrace) * (0.45 + 0.55 * ret.retention) * provenanceWeight(ep.provenance);
-      const { recallReason, channels } = describeRecallReasons({
-        semanticSim: vec, lexicalSim: lex, userPinned: ep.userPinned, selfImportant: ep.selfImportant,
-        mentionCount: ep.mentionCount, arousal: ep.arousal, recallCount: ep.recallCount,
-      });
-      candidates.push({
-        id: ep.id, kind: 'episode', seq: ep.seq, score, bodyType: ep.bodyType, provenance: ep.provenance,
-        timestamp: ep.timestamp, title: ep.title, text: ep.summary, retentionPct: ret.retentionPct,
-        strength: ret.strength, recallCount: ep.recallCount ?? 0, mentionCount: ep.mentionCount ?? 1,
-        semanticSim: Number(vec.toFixed(3)), lexicalSim: Number(lex.toFixed(3)),
-        ...(ep.userPinned ? { userPinned: true } : {}), ...(ep.selfImportant ? { selfImportant: true } : {}),
-        recallReason, recallChannels: channels,
-      });
+    const extraDocIds: string[] = [];
+    if (queryVec && vectorMap) {
+      const vecScored: Array<{ id: string; sim: number }> = [];
+      for (const [id, vec] of Object.entries(vectorMap)) {
+        const sim = cosineSimilarity(queryVec, vec);
+        if (sim >= 0.3) vecScored.push({ id, sim });
+      }
+      vecScored.sort((a, b) => b.sim - a.sim);
+      for (const v of vecScored.slice(0, Math.max(topK * 4, 24))) extraDocIds.push(`episode:${v.id}`);
     }
 
-    for (const j of archive.recentJournal.slice(-40)) {
-      if (j.role === 'system') continue;
-      const lex = lexicalSimilarityFromTokens(queryTokens, j.text);
-      if (lex <= 0) continue;
-      const ret = computeRetention({ timestamp: j.timestamp, strength: Math.max(2, (j.importance ?? 45) / 15) }, nowMs);
-      const score = (0.55 * lex + 0.15 * ret.retention) * provenanceWeight(j.provenance);
-      const { recallReason, channels } = describeRecallReasons({ lexicalSim: lex });
-      candidates.push({
-        kind: 'journal', seq: j.seq, score, bodyType: j.bodyType, provenance: j.provenance,
-        timestamp: j.timestamp, title: `${j.speaker} (${j.bodyType})`, text: j.text,
-        retentionPct: ret.retentionPct, strength: ret.strength, recallCount: 0, mentionCount: 1,
-        semanticSim: 0, lexicalSim: Number(lex.toFixed(3)), recallReason, recallChannels: channels,
-      });
-    }
-
+    const indexRes = searchMemoryIndex(req.archiveDir, req.query, {
+      candidateLimit: Math.max(topK * 10, 60),
+      recentEpisodeLimit: Math.max(topK * 2, 16),
+      extraDocIds,
+    });
+    const candidates = scoreIndexedMemoryCandidates({
+      indexRes,
+      queryTokens: tokenizeText(req.query),
+      queryVec,
+      vectorMap,
+      nowMs,
+    });
     const items = candidates.sort((a, b) => b.score - a.score).slice(0, topK);
     const expLimit = req.experienceTopK ?? 4;
     const experiences = expLimit > 0
@@ -172,18 +126,24 @@ export class BuiltinHybridRetriever implements MemoryRetriever {
   }
 
   async sync(archiveDir: string, options?: { embedding?: EmbeddingConfig }): Promise<Record<string, unknown>> {
-    if (!options?.embedding) return { ok: true, skipped: true, reason: '未传入 embedding 配置' };
-    return (await syncVectorIndexDetailed(archiveDir, options.embedding)) as unknown as Record<string, unknown>;
+    const ftsIndex = ensureMemoryIndex(archiveDir, { verifyHash: true });
+    if (!options?.embedding) return { ok: true, skipped: true, reason: '未传入 embedding 配置', ftsIndex };
+    const vec = await syncVectorIndexDetailed(archiveDir, options.embedding);
+    return { ...vec, ftsIndex };
   }
 
-  async health(_archiveDir: string, options?: { embedding?: EmbeddingConfig }): Promise<MemoryRetrieverHealth> {
+  async health(archiveDir: string, options?: { embedding?: EmbeddingConfig }): Promise<MemoryRetrieverHealth> {
+    const fts = getMemoryIndexStatus(archiveDir);
+    const ftsNote = fts.exists ? `SQLite FTS5 就绪(${fts.docCount}条)` : 'SQLite FTS5 待按需重建';
     if (!options?.embedding?.enabled) {
-      return { ok: true, retrieverId: this.id, name: this.name, detail: '词法+艾宾浩斯常驻就绪（向量增强未开启）' };
+      return { ok: true, retrieverId: this.id, name: this.name, detail: `${ftsNote} · 词法+艾宾浩斯常驻就绪（向量增强未开启）` };
     }
     const rep = await checkEmbeddingHealth(options.embedding);
     return {
       ok: true, retrieverId: this.id, name: this.name,
-      detail: rep.ok ? `向量模型 ${rep.model} (${rep.dims}维) 在线` : `向量离线自动降级词法检索: ${rep.error || '不可达'}`,
+      detail: rep.ok
+        ? `${ftsNote} · 向量模型 ${rep.model} (${rep.dimensions ?? 0}维) 在线`
+        : `${ftsNote} · 向量离线自动降级词法检索: ${rep.detail}`,
     };
   }
 }

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import {
   readJsonObjectSafe,
   readJsonlSafe,
@@ -11,6 +12,7 @@ import type {
   MemoryEngraveEvent, MemoryEpisode, RecallChannel,
 } from '../soul/types.ts';
 import { lexicalSimilarity } from './experience.ts';
+import { syncMemoryIndexFile } from './sqlite-index.ts';
 import { addEpisode, renderEpisodesMarkdown } from './store.ts';
 import { cosineSimilarity } from './vector-store.ts';
 
@@ -103,6 +105,7 @@ function saveJsonl<T>(filePath: string, items: T[]): void {
 function persistEpisodes(dir: string, episodes: MemoryEpisode[], fallbackName = 'Soul'): void {
   const p = resolveArchivePaths(dir);
   saveJsonl(p.episodesJsonl, episodes);
+  syncMemoryIndexFile(dir, 'episodes.jsonl');
   const size = fs.existsSync(p.episodesJsonl) ? fs.statSync(p.episodesJsonl).size : 0;
   if (size <= LARGE_JSONL_BYTES) {
     const meta = readJsonObjectSafe<{ name?: string }>(p.meta, {});
@@ -144,7 +147,13 @@ function applyReinforcementBatch<T extends Reinforceable>(
     item.lastRecalledAt = new Date(hitNowMs).toISOString();
     updated += 1;
   }
-  if (updated > 0) saveJsonl(filePath, list);
+  if (updated > 0) {
+    saveJsonl(filePath, list);
+    const base = path.basename(filePath);
+    if (base === 'episodes.jsonl' || base === 'experiences.jsonl') {
+      syncMemoryIndexFile(path.dirname(path.dirname(filePath)), base);
+    }
+  }
   return updated;
 }
 
