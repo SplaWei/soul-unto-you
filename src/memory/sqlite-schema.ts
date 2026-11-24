@@ -111,7 +111,7 @@ export function renameWithRetry(src: string, dest: string): void {
 export function isCorruptSqliteError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   const code = (err as { errcode?: number; code?: string } | null)?.code;
-  return /SQLITE_CORRUPT|SQLITE_NOTADB|malformed|not a database|no such table|no such column/i.test(`${code ?? ''} ${msg}`);
+  return /SQLITE_CORRUPT|SQLITE_NOTADB|malformed|not a database|no such table|no such column|has no column named/i.test(`${code ?? ''} ${msg}`);
 }
 
 export function resolveTrackedFilePath(dir: string, sourceFile: TrackedMemoryFile): string {

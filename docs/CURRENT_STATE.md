@@ -7,7 +7,7 @@
 - **战略校准（已由主人拍板）**：确立“纯文本灵魂档案规范 + 多躯体协议中枢”定位；严格按 **先 Phase A（`v0.6` 内核瘦身 + 记忆升级 + 真机评测）→ 后 Phase B（`v0.7` 头部躯体生态联调）** 串行推进。
 
 ## 2. 环境与健康基线
-- **自动化验证**：`node --test tests/*.test.ts` **78/78 全绿**（含工程门禁 1~6、Task A2 实验开关隔离、Task A3 `node:sqlite` FTS5 索引/万级性能基线、Task A4 通用 Embedding+Rerank 重排/无密钥回退 FTS5/`MEMORIES/facts.jsonl` 事实冲突消解、零隐私扫描）。
+- **自动化验证**：`node --test tests/*.test.ts` **79/79 全绿**（含工程门禁 1~6、Task A2 实验开关隔离、Task A3 `node:sqlite` FTS5 索引/旧版 Schema 缺列自动重建/万级性能基线、Task A4 通用 Embedding+Rerank 重排/无密钥回退 FTS5/`MEMORIES/facts.jsonl` 事实冲突消解、零隐私扫描）。
 - **Task A4 新增纯文本与配置**：
   - `MEMORIES/facts.jsonl`（可选事实账本，支持 `ADD/UPDATE/DELETE/NONE` 状态机与 `superseded`/`superseded_by` 历史追溯，检索与 Prompt 仅用 `active` 事实）。
   - `soul-hub.local.json` 新增 `rerank` 配置段与 `embedding.apiKey`/`dimensions`、`retriever.topK`/`minScore`（无密钥自动回退离线 FTS5）；外部插座协议见 [MEMORY-RETRIEVER-PROTOCOL.md](./MEMORY-RETRIEVER-PROTOCOL.md)。

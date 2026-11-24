@@ -15,6 +15,7 @@ import {
   rebuildMemoryIndex,
   searchMemoryIndex,
 } from '../src/memory/search.ts';
+import { syncMemoryIndexFile } from '../src/memory/sqlite-index.ts';
 import { addCoBecoming, addEpisode } from '../src/memory/store.ts';
 import { REPO_ROOT } from '../src/server/config.ts';
 import { createSoulHubServer } from '../src/server/main.ts';
@@ -259,5 +260,41 @@ test('A3-6 坏行可见报告（纯文本不变）与 rebuild 失败零 .tmp 残
     assert.deepEqual(leftTmp, [], 'rebuild 失败后 .cache 不得残留 .memory-index.tmp-* 文件');
   } finally {
     fs.rmSync(dirFail, { recursive: true, force: true });
+  }
+});
+
+test('A3-7 旧版 Schema v1 缓存缺列（无 skipped_count）升级自动静默重建不崩溃', async () => {
+  const { dir } = makeSandbox('soul-a3-legacy-');
+  const p = resolveArchivePaths(dir);
+  const writeLegacyV1Db = (dbPath: string) => {
+    for (const s of ['', '-wal', '-shm', '-journal']) fs.rmSync(`${dbPath}${s}`, { force: true });
+    const db = new DatabaseSync(dbPath);
+    try {
+      db.exec(`
+        CREATE TABLE index_meta (source_file TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, file_size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, line_count INTEGER NOT NULL, sha256 TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE memory_docs (doc_id TEXT PRIMARY KEY, source_file TEXT NOT NULL, kind TEXT NOT NULL, seq INTEGER NOT NULL, timestamp TEXT NOT NULL, body_type TEXT NOT NULL, body_id TEXT NOT NULL, speaker TEXT NOT NULL, role TEXT NOT NULL, provenance TEXT NOT NULL, status TEXT NOT NULL, title TEXT NOT NULL, text TEXT NOT NULL, meta_json TEXT NOT NULL);
+        CREATE VIRTUAL TABLE memory_fts USING fts5(doc_id UNINDEXED, bigrams, unigrams, tokenize='unicode61');
+        INSERT INTO index_meta VALUES ('episodes.jsonl', 1, 10, 10, 1, 'old', '2026-01-01T00:00:00.000Z');
+      `);
+    } finally {
+      db.close();
+    }
+  };
+  try {
+    addEpisode(dir, { bodyType: 'web', bodyId: 'web-1', title: '旧版升级记忆', summary: '确保旧缓存升级不崩溃且可召回蓝雪花。' });
+    appendJournal(dir, { bodyId: 'web-1', bodyType: 'web', speaker: '同行者', role: 'partner', text: '测试旧版缓存升级', provenance: 'verified' });
+
+    writeLegacyV1Db(p.memoryIndexDb);
+    const rep = ensureMemoryIndex(dir, { verifyHash: true });
+    assert.equal(rep.ok, true);
+    assert.equal(rep.rebuilt, true);
+    assert.ok(getMemoryIndexStatus(dir).docCount >= 2);
+    assert.equal((await recallMemories(dir, '蓝雪花', { reinforce: false }))[0]?.title, '旧版升级记忆');
+
+    writeLegacyV1Db(p.memoryIndexDb);
+    assert.doesNotThrow(() => syncMemoryIndexFile(dir, 'episodes.jsonl'));
+    assert.equal((await recallMemories(dir, '旧版升级记忆', { reinforce: false }))[0]?.title, '旧版升级记忆');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

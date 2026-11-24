@@ -101,6 +101,11 @@ export function ensureMemoryIndex(dir: string, options: { verifyHash?: boolean }
     const metaRows = db.prepare(
       'SELECT source_file, schema_version, file_size, mtime_ms, line_count, sha256 FROM index_meta',
     ).all() as unknown as MetaDbRow[];
+    if (metaRows.length === 0 || metaRows.some((r) => r.schema_version !== INDEX_SCHEMA_VERSION)) {
+      db.close();
+      db = null;
+      return rebuildMemoryIndex(dir);
+    }
     const metaMap = new Map<string, MetaDbRow>(metaRows.map((r) => [r.source_file, r]));
     const dirty: Array<{ file: TrackedMemoryFile; stat: FileSnapshotStat }> = [];
 
