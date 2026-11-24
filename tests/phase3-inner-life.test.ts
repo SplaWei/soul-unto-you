@@ -56,6 +56,7 @@ test('3.3 先验认知态度(信/疑/忽)随内驱力演化 + 实践反馈自动
       realityOutcome: '尚未亲手遇到过苦力怕',
       valence: -0.6,
       lesson: '书本提醒：别空手招惹苦力怕。',
+      experimental: { enableInnerLife: true, enableEmotion: true },
     });
     assert.equal(bookExp.attitude, 'skeptical');
 
@@ -75,6 +76,7 @@ test('3.3 先验认知态度(信/疑/忽)随内驱力演化 + 实践反馈自动
       realityOutcome: '被苦力怕炸掉 16 点生命值，差点倒下',
       valence: -0.92,
       lesson: '真被炸惨了，先去找剑和护甲再打！',
+      experimental: { enableInnerLife: true, enableEmotion: true },
     });
 
     const dAfterPain = loadDrives(dir);
@@ -94,6 +96,7 @@ test('3.3 先验认知态度(信/疑/忽)随内驱力演化 + 实践反馈自动
       realityOutcome: '成功击败苦力怕且血量无损',
       valence: 0.9,
       lesson: '拿着好剑配合拉扯走位可以战胜苦力怕！',
+      experimental: { enableInnerLife: true, enableEmotion: true },
     });
     const desiresAfterWin = listDesires(dir);
     assert.ok(desiresAfterWin.some((d) => d.title.includes('防护准备') && d.status === 'fulfilled'));

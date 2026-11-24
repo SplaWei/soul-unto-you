@@ -103,6 +103,11 @@ export async function recallMemories(
   return retrieval.items;
 }
 
+const stripSoulCoBecomingSection = (md: string): string =>
+  md.replace(/\n?##\s*双向蜕变年轮[\s\S]*?(?=\n##\s|$)/g, '').replace(/\n{3,}/g, '\n\n').trim();
+const stripSeedCoBecomingLines = (md: string): string =>
+  md.split(/\r?\n/).filter((line) => !/^\s*CoBecoming\s*:/i.test(line)).join('\n').trim();
+
 export async function buildRecallContext(params: {
   archiveDir: string;
   query: string;
@@ -183,9 +188,11 @@ export async function buildRecallContext(params: {
   const lastPartnerOrSoul = archive.recentJournal.filter((j) => j.role === 'partner' || j.role === 'soul').slice(-1)[0];
   const lastGap = lastPartnerOrSoul ? formatRelativeAge(lastPartnerOrSoul.timestamp, nowMs) : '首次苏醒';
 
+  const seedForPrompt = enableInnerLife ? archive.seedMarkdown.trim() : stripSeedCoBecomingLines(archive.seedMarkdown);
+  const soulForPrompt = enableInnerLife ? archive.soulMarkdown.trim() : stripSoulCoBecomingSection(archive.soulMarkdown);
   const sections: string[] = [
-    archive.seedMarkdown.trim(),
-    archive.soulMarkdown.trim(),
+    seedForPrompt,
+    soulForPrompt,
     '---',
     '## 全局实时在场状态 (Global Presence)',
     `- 当前现实时间：${formatCurrentClock(nowMs)}`,

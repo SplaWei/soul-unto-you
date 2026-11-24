@@ -134,11 +134,12 @@ export async function run30DayDriftSimulation(days = 30): Promise<Sim30dReport> 
           lesson: isPain ? '接近高热设备前必须穿隔热装备' : '配合默契带来稳固正反馈',
           timestamp: new Date(expMs).toISOString(),
           nowMs: expMs,
+          experimental: { enableInnerLife: true, enableEmotion: true },
         });
       }
 
       if ((d + 1) % 3 === 0) {
-        await runDreamConsolidation(dir, { nowMs: dayBase + 22 * 3_600_000 });
+        await runDreamConsolidation(dir, { nowMs: dayBase + 22 * 3_600_000, experimental: { enableInnerLife: true } });
         await evolveSelfFromDream(dir);
       }
       if ((d + 1) % 6 === 0) {

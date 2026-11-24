@@ -172,15 +172,13 @@ function upgradeInheritedAttitudes(dir: string, exp: LivedExperience): void {
   }
 }
 
-/** 通用亲历反馈演化内驱力与微心愿（无任何特定游戏或场景硬编码）。 */
-export function applyExperienceToInnerLife(
+/** 仅演化内驱力、微心愿与先验认知态度，不写入情绪状态。 */
+export function applyExperienceToDrives(
   dir: string,
   exp: LivedExperience,
-  nowMs?: number,
 ): { drives: SoulDrives; desire?: SoulDesire | null } {
   const cur = loadDrives(dir);
   let desire: SoulDesire | null = null;
-  applyExperienceEmotion(dir, exp, nowMs);
   if (exp.origin !== 'lived') return { drives: cur, desire };
 
   upgradeInheritedAttitudes(dir, exp);
@@ -226,6 +224,16 @@ export function applyExperienceToInnerLife(
   return { drives: cur, desire };
 }
 
+/** 通用亲历反馈同时更新情绪惯性矢量与内驱力/微心愿。 */
+export function applyExperienceToInnerLife(
+  dir: string,
+  exp: LivedExperience,
+  nowMs?: number,
+): { drives: SoulDrives; desire?: SoulDesire | null } {
+  applyExperienceEmotion(dir, exp, nowMs);
+  return applyExperienceToDrives(dir, exp);
+}
+
 export interface InnerLifeHubLike {
   config: { archiveDir: string; experimental?: ExperimentalConfig };
   presence: {
@@ -248,7 +256,7 @@ export async function handleInnerLifeHttpRoute(
   readJsonBody: <T = Record<string, unknown>>(req: IncomingMessage) => Promise<T>,
 ): Promise<boolean> {
   const blockIfOff = (key: keyof ExperimentalConfig, label: string): boolean => {
-    if (hub.config.experimental?.[key] !== false) return false;
+    if (hub.config.experimental?.[key] === true) return false;
     sendJson(res, 403, { ok: false, error: `实验性${label}模块未启用（请在设置中开启 ${key}）`, experimentalDisabled: key });
     return true;
   };

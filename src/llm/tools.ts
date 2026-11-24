@@ -46,8 +46,8 @@ export function buildSoulToolBundle(
   observeMode?: boolean,
   opts: ToolPromptOptions = {},
 ): SoulToolBundle {
-  const enableEmotion = opts.enableEmotion !== false;
-  const enableFreeWill = opts.enableFreeWill !== false;
+  const enableEmotion = opts.enableEmotion === true;
+  const enableFreeWill = opts.enableFreeWill === true;
   const stateTool: SoulToolDef = {
     name: SOUL_STATE_TOOL_NAME,
     description: enableFreeWill || enableEmotion
@@ -112,8 +112,8 @@ export function buildMetaInstruction(
   nativeToolsEnabled = true,
   opts: ToolPromptOptions = {},
 ): string {
-  const enableEmotion = opts.enableEmotion !== false;
-  const enableFreeWill = opts.enableFreeWill !== false;
+  const enableEmotion = opts.enableEmotion === true;
+  const enableFreeWill = opts.enableFreeWill === true;
   const lines = [
     '',
     enableFreeWill ? '## 躯体表达与自由意志结构化意图协议（必须严格遵循）' : '## 躯体表达与记忆协议（必须严格遵循）',

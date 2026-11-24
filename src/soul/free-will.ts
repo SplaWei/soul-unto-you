@@ -54,8 +54,8 @@ export function buildExperienceAndFreeWillPrompt(
   bodyRules: string[] = [],
   opts: { enableFreeWill?: boolean; enableInnerLife?: boolean } = {},
 ): string {
-  const showFw = opts.enableFreeWill !== false;
-  const showIl = opts.enableInnerLife !== false;
+  const showFw = opts.enableFreeWill === true;
+  const showIl = opts.enableInnerLife === true;
   const lines: string[] = [];
 
   if (showFw) {
@@ -252,7 +252,7 @@ export interface MockChatInput {
 }
 
 export function runExperienceAwareMockChat(input: MockChatInput) {
-  const fwOn = input.enableFreeWill !== false;
+  const fwOn = input.enableFreeWill === true;
   const commits = extractSectionLines(input.systemPrompt, '## 未完成约定与跨端承诺');
   const episodes = extractSectionLines(input.systemPrompt, '## 近期情景日记');
   const tail = input.catchphrase ? ` ${input.catchphrase}` : '';

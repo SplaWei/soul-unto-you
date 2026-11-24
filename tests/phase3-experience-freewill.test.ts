@@ -146,6 +146,7 @@ test('3.2 自由意志抉择与真实 LLM <soul_meta> 解析：不再写死服�
       bodyType: 'game:minecraft',
       soulName: '柳遥',
       recalledExperiences: ctx.recalledExperiences,
+      experimental: { enableFreeWill: true, enableEmotion: true },
     });
     assert.equal(llmOut.freeWill?.stance, 'invite_together');
     assert.ok(llmOut.freeWill?.referencedExperienceSeqs.includes(painExp.seq));

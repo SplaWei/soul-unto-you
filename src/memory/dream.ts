@@ -8,7 +8,7 @@ import {
   resolveArchivePaths,
   writeJsonAtomic,
 } from '../soul/archive.ts';
-import type { BodyType, JournalEntry } from '../soul/types.ts';
+import type { BodyType, ExperimentalConfig, JournalEntry } from '../soul/types.ts';
 import { lexicalSimilarity } from './experience.ts';
 import { mergeDreamRelation } from './relations.ts';
 import { estimateEmotionSignals, flushPendingReinforcements } from './retention.ts';
@@ -43,6 +43,7 @@ function extractCommitmentTitle(text: string): string {
 
 function heuristicConsolidate(
   archiveDir: string, entries: JournalEntry[], soulName: string, partnerName: string, nowMs: number,
+  enableInnerLife = false,
 ): { episodesAdded: number; commitmentsAdded: number; coBecomingAdded: number } {
   const groups = new Map<string, JournalEntry[]>();
   for (const e of entries) {
@@ -103,7 +104,7 @@ function heuristicConsolidate(
     }
   }
 
-  if (entries.length >= 4) {
+  if (enableInnerLife && entries.length >= 4) {
     const bodies = Array.from(new Set(entries.map((e) => e.bodyType))).join('、');
     addCoBecoming(archiveDir, {
       soulShift: `在 ${bodies} 场景中陪${partnerName}度过一段真实时光，记忆更加丰盈。`,
@@ -231,9 +232,11 @@ export async function runDreamConsolidation(
     llm?: DreamLlmAdapter;
     embedding?: EmbeddingConfig;
     nowMs?: number;
+    experimental?: Partial<ExperimentalConfig>;
     lock?: { withSoulLock: <T>(task: () => Promise<T>) => Promise<T>; getEpoch?: () => number };
   } = {},
 ): Promise<DreamResult> {
+  const enableInnerLife = options.experimental?.enableInnerLife === true;
   const runLocked = <T>(fn: () => Promise<T> | T): Promise<T> =>
     (options.lock ? options.lock.withSoulLock(async () => fn()) : Promise.resolve(fn()));
   const nowMs = options.nowMs ?? Date.now();
@@ -316,12 +319,12 @@ export async function runDreamConsolidation(
       }
       for (const doneKey of validatedPlan.completedCommitments) completeCommitment(archiveDir, doneKey);
       for (const rel of validatedPlan.relations) mergeDreamRelation(archiveDir, rel);
-      if (validatedPlan.coBecoming?.soulShift) {
+      if (enableInnerLife && validatedPlan.coBecoming?.soulShift) {
         addCoBecoming(archiveDir, { ...validatedPlan.coBecoming, provenance: 'verified', skipRefresh: true });
         coBecomingAdded += 1;
       }
     } else {
-      const res = heuristicConsolidate(archiveDir, snap.pending, latestMeta.name, latestMeta.partnerName, nowMs);
+      const res = heuristicConsolidate(archiveDir, snap.pending, latestMeta.name, latestMeta.partnerName, nowMs, enableInnerLife);
       episodesAdded = res.episodesAdded;
       commitmentsAdded = res.commitmentsAdded;
       coBecomingAdded = res.coBecomingAdded;
@@ -341,11 +344,13 @@ export async function runDreamConsolidation(
     };
   }
 
-  await evolveSelfFromDream(
-    archiveDir,
-    options.llm?.isRealLlm() ? (pr) => options.llm!.dreamSummarize(pr) : undefined,
-    { lock: options.lock },
-  );
+  if (enableInnerLife) {
+    await evolveSelfFromDream(
+      archiveDir,
+      options.llm?.isRealLlm() ? (pr) => options.llm!.dreamSummarize(pr) : undefined,
+      { lock: options.lock },
+    );
+  }
   const vecRep = await syncVectorIndexDetailed(archiveDir, options.embedding, {
     shouldAbort: () => Boolean(options.lock?.getEpoch && options.lock.getEpoch() !== snap.startEpoch),
   });

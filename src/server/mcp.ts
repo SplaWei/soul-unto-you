@@ -204,7 +204,9 @@ export async function handleMcpRpc(ctx: SoulHubContext, req: McpRequest): Promis
     } else if (name === 'soul_presence') {
       payload = ctx.presence.getState();
     } else if (name === 'soul_dream') {
-      payload = await runDreamConsolidation(ctx.config.archiveDir, { llm: ctx.llm, embedding: ctx.config.embedding, lock: ctx.presence });
+      payload = await runDreamConsolidation(ctx.config.archiveDir, {
+        llm: ctx.llm, embedding: ctx.config.embedding, lock: ctx.presence, experimental: ctx.config.experimental,
+      });
     } else if (name === 'soul_seed') {
       const archive = loadSoulArchive(ctx.config.archiveDir, 1);
       payload = { seed: archive.seedMarkdown, bytes: Buffer.byteLength(archive.seedMarkdown, 'utf8') };

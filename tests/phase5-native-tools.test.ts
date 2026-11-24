@@ -82,8 +82,9 @@ test('5.2-A OpenAI 原生 Function Calling：单轮并发、空文本自动二�
   const router = new LlmRouter({ chat: { driver: 'openai-compatible', model: 'gpt-test', baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: 'k' } });
   const actions = [{ name: 'ring_bell', description: '敲铃提醒', params: { times: 'number' } }];
 
+  const expOn = { enableEmotion: true, enableFreeWill: true };
   try {
-    const out1 = await router.chat({ systemPrompt: 'sys', userText: '敲两下铃铛', speaker: 'u', bodyType: 'web', soulName: '柳遥', availableActions: actions });
+    const out1 = await router.chat({ systemPrompt: 'sys', userText: '敲两下铃铛', speaker: 'u', bodyType: 'web', soulName: '柳遥', availableActions: actions, experimental: expOn });
     assert.equal(reqs.length, 1);
     assert.ok(Array.isArray(reqs[0].tools) && reqs[0].tools.length === 2);
     assert.equal(out1.reply, '好的，已经安排啦！');
@@ -95,7 +96,7 @@ test('5.2-A OpenAI 原生 Function Calling：单轮并发、空文本自动二�
 
     reqs.length = 0;
     mode = 'two-turn';
-    const out2 = await router.chat({ systemPrompt: 'sys', userText: '敲一下铃铛', speaker: 'u', bodyType: 'web', soulName: '柳遥', availableActions: actions });
+    const out2 = await router.chat({ systemPrompt: 'sys', userText: '敲一下铃铛', speaker: 'u', bodyType: 'web', soulName: '柳遥', availableActions: actions, experimental: expOn });
     assert.equal(reqs.length, 2);
     assert.ok((reqs[1].messages as Array<{ role?: string }>).some((m) => m.role === 'tool'));
     assert.equal(out2.reply, '铃铛已经响过啦！');
@@ -104,7 +105,7 @@ test('5.2-A OpenAI 原生 Function Calling：单轮并发、空文本自动二�
 
     reqs.length = 0;
     mode = 'observe-quiet';
-    const out3 = await router.chat({ systemPrompt: 'sys', userText: '窗外微风吹过', speaker: 'obs', bodyType: 'iot:sensor', soulName: '柳遥', availableActions: actions, observeMode: true });
+    const out3 = await router.chat({ systemPrompt: 'sys', userText: '窗外微风吹过', speaker: 'obs', bodyType: 'iot:sensor', soulName: '柳遥', availableActions: actions, observeMode: true, experimental: expOn });
     assert.equal(reqs.length, 1);
     assert.equal(out3.decidedToSpeak, false);
     assert.equal(out3.mood, '安静注视');
@@ -153,8 +154,9 @@ test('5.2-B Gemini 原生 functionDeclarations / functionCall 单轮与二轮 fu
   const router = new LlmRouter({ chat: { driver: 'gemini-aistudio', model: 'gemini-test', baseUrl: `http://127.0.0.1:${port}`, apiKey: 'k' } });
   const actions = [{ name: 'blink_led', description: '闪烁补水灯', params: { count: 'number' } }];
 
+  const expOn = { enableEmotion: true, enableFreeWill: true };
   try {
-    const out1 = await router.chat({ systemPrompt: 'sys', userText: '闪灯三下', speaker: 'u', bodyType: 'iot:plant', soulName: '柳遥', availableActions: actions });
+    const out1 = await router.chat({ systemPrompt: 'sys', userText: '闪灯三下', speaker: 'u', bodyType: 'iot:plant', soulName: '柳遥', availableActions: actions, experimental: expOn });
     assert.equal(reqs.length, 1);
     const decls = (reqs[0].tools as Array<{ functionDeclarations: Array<{ name: string }> }>)[0].functionDeclarations;
     assert.ok(decls.some((d) => d.name === 'soul_report_state') && decls.some((d) => d.name === 'blink_led'));
@@ -166,7 +168,7 @@ test('5.2-B Gemini 原生 functionDeclarations / functionCall 单轮与二轮 fu
 
     reqs.length = 0;
     mode = 'two-turn';
-    const out2 = await router.chat({ systemPrompt: 'sys', userText: '再闪一下', speaker: 'u', bodyType: 'iot:plant', soulName: '柳遥', availableActions: actions });
+    const out2 = await router.chat({ systemPrompt: 'sys', userText: '再闪一下', speaker: 'u', bodyType: 'iot:plant', soulName: '柳遥', availableActions: actions, experimental: expOn });
     assert.equal(reqs.length, 2);
     const r2Contents = reqs[1].contents as Array<{ parts?: Array<{ functionResponse?: { name?: string } }> }>;
     assert.ok(r2Contents.some((c) => (c.parts ?? []).some((p) => p.functionResponse?.name === 'blink_led')));
@@ -204,7 +206,7 @@ test('5.2-C 端点不支持原生工具时自动降级至 <soul_meta> 轨道 & �
   const router = new LlmRouter({ chat: { driver: 'openai-compatible', model: 'legacy-m', baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: 'k' } });
 
   try {
-    const out1 = await router.chat({ systemPrompt: 'sys', userText: '挥手', speaker: 'u', bodyType: 'web', soulName: '柳遥', availableActions: [{ name: 'wave', description: '挥手' }] });
+    const out1 = await router.chat({ systemPrompt: 'sys', userText: '挥手', speaker: 'u', bodyType: 'web', soulName: '柳遥', availableActions: [{ name: 'wave', description: '挥手' }], experimental: { enableEmotion: true, enableFreeWill: true } });
     assert.equal(out1.toolCallMode, 'tag');
     assert.equal(out1.reply, '好的我记着呢~');
     assert.equal(out1.mood, '笃定');

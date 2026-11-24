@@ -75,7 +75,7 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
       personId: activePerson.person.personId, metadata: input.metadata,
     });
     const fbExp = expCfg.enableFreeWill && input.metadata?.realityFeedback
-      ? ingestRealityFeedback(activeDir, { bodyId, bodyType, summary: text, speaker: actualSpeaker, metadata: input.metadata })
+      ? ingestRealityFeedback(activeDir, { bodyId, bodyType, summary: text, speaker: actualSpeaker, metadata: input.metadata, experimental: expCfg })
       : null;
     return {
       activeDir, startEpoch, archive, actualSpeaker, activePerson, recalledCtx,
@@ -185,7 +185,7 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
   if (!input.allowSpeak) {
     const out = await ctx.presence.withSoulLock(async () => {
       const dir = ctx.config.archiveDir;
-      const recordedExp = recordObserveInArchive(dir, bodyId, bodyType, summary, input, expCfg.enableFreeWill);
+      const recordedExp = recordObserveInArchive(dir, bodyId, bodyType, summary, input, expCfg);
       const emotion = expCfg.enableEmotion ? loadEmotionState(dir) : null;
       const nextPresence = ctx.presence.recordActivity({
         bodyId, bodyType, displayName: input.displayName,
@@ -220,7 +220,7 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
       vectorMap: sameDir ? prepared.vectorMap : null,
       ...(sameDir && prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}),
     });
-    const recordedExp = recordObserveInArchive(activeDir, bodyId, bodyType, summary, input, expCfg.enableFreeWill);
+    const recordedExp = recordObserveInArchive(activeDir, bodyId, bodyType, summary, input, expCfg);
     const emotion = expCfg.enableEmotion ? loadEmotionState(activeDir) : null;
     ctx.presence.recordActivity({
       bodyId, bodyType, displayName: input.displayName,

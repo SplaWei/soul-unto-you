@@ -132,7 +132,9 @@ export async function handleBodyApiRequest(
     if (req.method === 'POST' && pathname === '/api/body/observe') return sendTurnOut(await processObserve(ctx, await readJsonBody<ObserveInput>(req)));
     if (req.method === 'POST' && pathname === '/api/proactive/trigger') return sendTurnOut(await processProactive(ctx, await readJsonBody(req)));
     if (req.method === 'POST' && pathname === '/api/dream') {
-      const out = await runDreamConsolidation(ctx.config.archiveDir, { llm: ctx.llm, embedding: ctx.config.embedding, lock: ctx.presence });
+      const out = await runDreamConsolidation(ctx.config.archiveDir, {
+        llm: ctx.llm, embedding: ctx.config.embedding, lock: ctx.presence, experimental: ctx.config.experimental,
+      });
       ctx.events.emit('dream.completed', out);
       return okJson(out);
     }

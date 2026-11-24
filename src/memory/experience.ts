@@ -1,14 +1,14 @@
 import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { loadEmotionState, resetEmotionState, toPresenceEmotion } from '../presence/emotion.ts';
-import { applyExperienceToInnerLife, inferEpistemicAttitude, loadDrives } from '../presence/inner-life.ts';
+import { applyExperienceEmotion, loadEmotionState, resetEmotionState, toPresenceEmotion } from '../presence/emotion.ts';
+import { applyExperienceToDrives, inferEpistemicAttitude, loadDrives } from '../presence/inner-life.ts';
 import { evolveSelfFromExperience, resetLivingSelf } from '../soul/living-self.ts';
 import {
   DEFAULT_SOUL_DRIVES, allocateSeq, appendJsonlLine, appendJournal,
   readJsonlSafe, refreshDerivedSoulFiles, resolveArchivePaths, writeJsonAtomic, writeTextAtomic,
 } from '../soul/archive.ts';
 import { createSnapshot } from '../soul/snapshot.ts';
-import type { BodyType, ExperienceOrigin, FreeWillStance, LivedExperience, Provenance } from '../soul/types.ts';
+import type { BodyType, ExperimentalConfig, ExperienceOrigin, FreeWillStance, LivedExperience, Provenance } from '../soul/types.ts';
 import { computeInitialStrength, computeRetention } from './retention.ts';
 import { syncMemoryIndexFile, upsertMemoryIndexRecord } from './sqlite-index.ts';
 import { cosineSimilarity } from './vector-store.ts';
@@ -29,6 +29,7 @@ export interface RecordExperienceInput {
   provenance?: Provenance;
   timestamp?: string;
   nowMs?: number;
+  experimental?: Partial<ExperimentalConfig>;
 }
 
 export interface RealityFeedbackInput {
@@ -37,6 +38,7 @@ export interface RealityFeedbackInput {
   summary: string;
   speaker?: string;
   metadata?: Record<string, unknown>;
+  experimental?: Partial<ExperimentalConfig>;
 }
 
 const PAIN_RE = /(受到.*伤害|受伤|掉血|生命值仅剩|阵亡|死亡|被炸|炸伤|炸掉|炸死|烫伤|烧伤|重创|失败|报错|受挫|挨打|挨揍|剧痛|缺水)/i;
@@ -89,7 +91,9 @@ export function recordExperience(dir: string, input: RecordExperienceInput): Liv
   const arousal = Number(clampRange(Number(input.arousal ?? defaultArousal), 0, 1).toFixed(3));
   const defaultConfidence = origin === 'lived' ? 0.88 : 0.62;
   const confidence = Number(clampRange(Number(input.confidence ?? defaultConfidence), 0, 1).toFixed(3));
-  const attitude = inferEpistemicAttitude(loadDrives(dir), origin, valence);
+  const enableInnerLife = input.experimental?.enableInnerLife === true;
+  const enableEmotion = input.experimental?.enableEmotion === true;
+  const attitude = enableInnerLife ? inferEpistemicAttitude(loadDrives(dir), origin, valence) : (origin === 'lived' ? 'verified' : 'skeptical');
   const timestamp = input.timestamp || new Date(nowMs).toISOString();
   const strength = computeInitialStrength({ importance: 70 + Math.round(arousal * 25), arousal, valence, origin });
 
@@ -118,8 +122,11 @@ export function recordExperience(dir: string, input: RecordExperienceInput): Liv
 
   appendJsonlLine(p.experiences, exp);
   upsertMemoryIndexRecord(dir, 'experiences.jsonl', exp as unknown as Record<string, unknown>);
-  applyExperienceToInnerLife(dir, exp, nowMs);
-  evolveSelfFromExperience(dir, exp);
+  if (enableEmotion) applyExperienceEmotion(dir, exp, nowMs);
+  if (enableInnerLife) {
+    applyExperienceToDrives(dir, exp);
+    evolveSelfFromExperience(dir, exp);
+  }
   return exp;
 }
 
@@ -150,6 +157,7 @@ export function ingestRealityFeedback(dir: string, input: RealityFeedbackInput):
       arousal: typeof rf.arousal === 'number' ? rf.arousal : Math.min(1, Math.max(0.55, Math.abs(valence) + 0.08)),
       lesson,
       tags: Array.isArray(rf.tags) ? rf.tags.map(String) : [input.bodyType, 'reality-feedback'],
+      experimental: input.experimental,
     });
   }
 
@@ -172,6 +180,7 @@ export function ingestRealityFeedback(dir: string, input: RealityFeedbackInput):
     arousal,
     lesson: inferLessonFromText(summary, isPain),
     tags: [input.bodyType, isPain ? 'pain-feedback' : 'warm-feedback'],
+    experimental: input.experimental,
   });
 }
 
@@ -242,7 +251,7 @@ export function recallExperiences(
 }
 
 export interface ExperienceHubLike {
-  config: { archiveDir: string };
+  config: { archiveDir: string; experimental?: Partial<ExperimentalConfig> };
   presence: {
     withSoulLock: <T>(task: () => Promise<T>) => Promise<T>;
     reload?: () => unknown;
@@ -286,6 +295,7 @@ export async function handleExperienceHttpRoute(
         stimulus: body.stimulus || '实践体验输入',
         realityOutcome: body.realityOutcome || body.lesson || body.stimulus,
         lesson: body.lesson || body.realityOutcome || '记下这次实践体验的反馈。',
+        experimental: hub.config.experimental,
       });
       const label = exp.origin === 'lived' ? '亲历实践反馈' : '先验口述教导';
       appendJournal(dir, {
@@ -293,12 +303,12 @@ export async function handleExperienceHttpRoute(
         text: `[${label}] ${exp.stimulus} → ${exp.realityOutcome}（领悟：${exp.lesson}）`,
         provenance: exp.provenance, importance: Math.round(55 + Math.abs(exp.valence) * 40), tags: ['experience', exp.origin],
       });
-      const emo = loadEmotionState(dir);
+      const emo = hub.config.experimental?.enableEmotion === true ? loadEmotionState(dir) : null;
       const presence = exp.origin === 'lived'
         ? hub.presence.recordActivity({
             bodyId: exp.bodyId, bodyType: exp.bodyType,
             activity: `经历 [${exp.bodyType}] 反馈：${exp.realityOutcome.slice(0, 26)}`,
-            mood: emo.moodLabel, emotion: toPresenceEmotion(emo),
+            mood: emo ? emo.moodLabel : '温柔平静', ...(emo ? { emotion: toPresenceEmotion(emo) } : {}),
             energyDelta: exp.valence <= -0.5 ? -6 : exp.valence >= 0.5 ? 2 : 0,
           })
         : null;

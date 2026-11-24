@@ -221,8 +221,8 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
   async chat(input: ChatTurnInput): Promise<ChatTurnResult> {
     const fullUserText = `${input.userText}${formatModalitiesNote(input.modalities)}`;
     const exp = input.experimental;
-    const enableEmotion = exp ? Boolean(exp.enableEmotion) : true;
-    const enableFreeWill = exp ? Boolean(exp.enableFreeWill) : true;
+    const enableEmotion = exp?.enableEmotion === true;
+    const enableFreeWill = exp?.enableFreeWill === true;
     const extCtx = input.externalSystemContext?.trim()
       ? `\n\n## 当前外部躯体客户端环境与指令说明\n请保持你的灵魂人格与跨躯体记忆，同时按需遵循以下客户端环境状态与命令规范：\n${input.externalSystemContext.trim().slice(0, 4000)}`
       : '';

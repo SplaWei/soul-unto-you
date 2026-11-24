@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
+import { addCoBecoming } from '../src/memory/store.ts';
 import { DEFAULT_EXPERIMENTAL_CONFIG, defaultHubConfig, loadHubConfig, sanitizeConfigForUi, saveHubConfig } from '../src/server/config.ts';
+import { appendJournal, refreshDerivedSoulFiles, resolveArchivePaths } from '../src/soul/archive.ts';
 import { authHeaders, withSandboxArchive, withTestHub } from './helpers/sandbox.ts';
 
 const FORBIDDEN_WHEN_OFF = [
@@ -13,7 +15,9 @@ const FORBIDDEN_WHEN_OFF = [
   '自主微心愿',
   '自由意志抉择准则',
   '亲历实践体验与现实反馈记忆',
-  '活体演化自我',
+  '活体自我演化',
+  '双向蜕变',
+  'CoBecoming',
   'gladly_accept',
   'firm_refuse',
   'autonomous_act',
@@ -78,11 +82,8 @@ test('v0.6-A2 默认实验开关全关闭、持久化校验与默认纯净 Promp
     await withTestHub({ prefix: 'soul-a2-clean-', llmBaseUrl: ai.baseUrl }, async ({ hub, dir }) => {
       const hAuth = authHeaders(hub.apiToken);
       const hGet = { 'X-Soul-Token': hub.apiToken };
-
-      // 未鉴权读取诊断 Prompt 必须被拒绝
       assert.equal((await fetch(`${hub.baseUrl}/api/phase2/last-prompt`)).status, 401);
 
-      // 注入一条记忆，确认核心人设 + 记忆在默认纯净模式下仍正常工作
       await fetch(`${hub.baseUrl}/api/archive/commitment`, {
         method: 'POST', headers: hAuth,
         body: JSON.stringify({ title: '周五带伞出门', detail: '天气预报说周五有雨', bodyType: 'web' }),
@@ -109,7 +110,6 @@ test('v0.6-A2 默认实验开关全关闭、持久化校验与默认纯净 Promp
       assert.equal(ai.requests[0].toolProps.includes('mood'), false, '关闭 enableEmotion 时工具不应包含 mood');
       assert.equal(ai.requests[0].toolProps.includes('stance'), false, '关闭 enableFreeWill 时工具不应包含 stance');
 
-      // 验证 /api/phase2/last-prompt 只读快照与实际下发完全一致
       const lpRes = await fetch(`${hub.baseUrl}/api/phase2/last-prompt`, { headers: hGet });
       assert.equal(lpRes.status, 200);
       const lpJson = (await lpRes.json()) as {
@@ -121,7 +121,6 @@ test('v0.6-A2 默认实验开关全关闭、持久化校验与默认纯净 Promp
       assert.equal(lpJson.snapshot.systemPrompt, sentPrompt);
       assert.equal(lpJson.snapshot.source, 'percept');
 
-      // 验证关闭状态下相关写/触发实验接口均被 403 拦截
       const blockedEndpoints = [
         { path: '/api/inner-life/heartbeat', body: { forceAction: 'write_diary' }, key: 'enableHeartbeat' },
         { path: '/api/inner-life/emotion', body: { rawMood: '开心' }, key: 'enableEmotion' },
@@ -155,7 +154,6 @@ test('v0.6-A2 逐个开启实验开关独立恢复对应 Prompt 段落与接口�
         assert.equal(r.status, 200);
       };
 
-      // 1) 仅开启 enableEmotion
       await toggle({ enableEmotion: true, enableInnerLife: false, enableFreeWill: false, enableHeartbeat: false, enableResurrection: false });
       const emoRes = await fetch(`${hub.baseUrl}/api/body/percept`, {
         method: 'POST', headers: hAuth, body: JSON.stringify({ bodyId: 'web-a2', bodyType: 'web', text: '聊一聊' }),
@@ -169,7 +167,6 @@ test('v0.6-A2 逐个开启实验开关独立恢复对应 Prompt 段落与接口�
       assert.equal(p1.includes('自由意志抉择准则'), false);
       assert.equal((await fetch(`${hub.baseUrl}/api/inner-life/emotion`, { method: 'POST', headers: hAuth, body: JSON.stringify({ rawMood: '欣喜' }) })).status, 200);
 
-      // 2) 仅开启 enableInnerLife
       await toggle({ enableEmotion: false, enableInnerLife: true, enableFreeWill: false, enableHeartbeat: false, enableResurrection: false });
       assert.equal((await fetch(`${hub.baseUrl}/api/inner-life/desire`, { method: 'POST', headers: hAuth, body: JSON.stringify({ title: '去海边吹风', detail: '放松一下' }) })).status, 200);
       await fetch(`${hub.baseUrl}/api/body/percept`, {
@@ -180,7 +177,6 @@ test('v0.6-A2 逐个开启实验开关独立恢复对应 Prompt 段落与接口�
       assert.equal(p2.includes('情绪惯性矢量：'), false);
       assert.equal(p2.includes('自由意志抉择准则'), false);
 
-      // 3) 仅开启 enableFreeWill
       await toggle({ enableEmotion: false, enableInnerLife: false, enableFreeWill: true, enableHeartbeat: false, enableResurrection: false });
       const fwRes = await fetch(`${hub.baseUrl}/api/body/percept`, {
         method: 'POST', headers: hAuth, body: JSON.stringify({ bodyId: 'web-a2', bodyType: 'web', text: '帮我试一下新工具' }),
@@ -193,7 +189,6 @@ test('v0.6-A2 逐个开启实验开关独立恢复对应 Prompt 段落与接口�
       assert.equal(p3.includes('情绪惯性矢量：'), false);
       assert.equal(p3.includes('内在驱力场'), false);
 
-      // 4) 开启 enableHeartbeat 与 enableResurrection
       await toggle({ enableHeartbeat: true, enableResurrection: true });
       assert.equal((await fetch(`${hub.baseUrl}/api/inner-life/heartbeat`, { method: 'POST', headers: hAuth, body: JSON.stringify({ forceAction: 'write_diary' }) })).status, 200);
       const rebornDir = path.join(dir, 'reborn-a2');
@@ -204,6 +199,117 @@ test('v0.6-A2 逐个开启实验开关独立恢复对应 Prompt 段落与接口�
       assert.equal(resRec.status, 200);
       assert.ok(fs.existsSync(path.join(rebornDir, 'SEED.md')));
     });
+  } finally {
+    await ai.close();
+  }
+});
+
+test('v0.6-A2 返工1：5开关全关强制做梦与历史遗留 CoBecoming 均不写盘、不渗入 Prompt', async () => {
+  const ai = await captureOpenAiMockServer();
+  try {
+    await withTestHub({ prefix: 'soul-a2-dream-off-', llmBaseUrl: ai.baseUrl }, async ({ hub, dir }) => {
+      const hAuth = authHeaders(hub.apiToken);
+      const p = resolveArchivePaths(dir);
+
+      addCoBecoming(dir, { soulShift: '历史测试蜕变', partnerShift: '历史互动变化', reflection: '旧反思' });
+      refreshDerivedSoulFiles(dir, { skipSoulBackup: true });
+      assert.ok(fs.readFileSync(p.soul, 'utf8').includes('双向蜕变年轮'));
+      assert.ok(fs.readFileSync(p.seed, 'utf8').includes('CoBecoming:'));
+
+      for (let i = 1; i <= 5; i += 1) {
+        appendJournal(dir, { bodyId: 'web-1', bodyType: 'web', speaker: '同行者', role: 'partner', text: `第 ${i} 条普通聊天，准备做梦整理。`, provenance: 'verified' });
+      }
+      const before = {
+        coBecoming: fs.readFileSync(p.coBecoming, 'utf8'),
+        beliefs: fs.readFileSync(p.beliefs, 'utf8'),
+        evolvingSelf: fs.readFileSync(p.evolvingSelf, 'utf8'),
+        emotion: fs.readFileSync(p.emotion, 'utf8'),
+        drives: fs.readFileSync(p.drives, 'utf8'),
+      };
+
+      const dreamRes = await fetch(`${hub.baseUrl}/api/dream`, { method: 'POST', headers: hAuth, body: '{}' });
+      assert.equal(dreamRes.status, 200);
+      const dreamJson = (await dreamRes.json()) as { ok: boolean; processedEntries: number; coBecomingAdded: number };
+      assert.equal(dreamJson.ok, true);
+      assert.ok(dreamJson.processedEntries >= 4);
+      assert.equal(dreamJson.coBecomingAdded, 0);
+
+      assert.equal(fs.readFileSync(p.coBecoming, 'utf8'), before.coBecoming);
+      assert.equal(fs.readFileSync(p.beliefs, 'utf8'), before.beliefs);
+      assert.equal(fs.readFileSync(p.evolvingSelf, 'utf8'), before.evolvingSelf);
+      assert.equal(fs.readFileSync(p.emotion, 'utf8'), before.emotion);
+      assert.equal(fs.readFileSync(p.drives, 'utf8'), before.drives);
+
+      const soulBeforeTurn = fs.readFileSync(p.soul, 'utf8');
+      const seedBeforeTurn = fs.readFileSync(p.seed, 'utf8');
+      const turn = await fetch(`${hub.baseUrl}/api/body/percept`, {
+        method: 'POST', headers: hAuth,
+        body: JSON.stringify({ bodyId: 'web-1', bodyType: 'web', text: '早安，做完梦啦？' }),
+      });
+      assert.equal(turn.status, 200);
+      const sentPrompt = ai.requests[ai.requests.length - 1]?.systemPrompt || '';
+      for (const bad of ['双向蜕变', 'CoBecoming', '活体自我演化', '内在驱力场', '自主微心愿']) {
+        assert.equal(sentPrompt.includes(bad), false, `默认关闭状态下 Prompt 不得包含 ${bad}`);
+      }
+      assert.equal(fs.readFileSync(p.soul, 'utf8'), soulBeforeTurn);
+      assert.equal(fs.readFileSync(p.seed, 'utf8'), seedBeforeTurn);
+      assert.ok(seedBeforeTurn.includes('CoBecoming: 历史测试蜕变'));
+    });
+  } finally {
+    await ai.close();
+  }
+});
+
+test('v0.6-A2 返工2：仅开 enableFreeWill 接收现实反馈，仅写 experiences.jsonl 不触碰情绪/驱力/演化', async () => {
+  const ai = await captureOpenAiMockServer();
+  try {
+    await withTestHub(
+      {
+        prefix: 'soul-a2-fw-only-',
+        llmBaseUrl: ai.baseUrl,
+        experimental: { enableFreeWill: true, enableEmotion: false, enableInnerLife: false, enableHeartbeat: false, enableResurrection: false },
+      },
+      async ({ hub, dir }) => {
+        const hAuth = authHeaders(hub.apiToken);
+        const p = resolveArchivePaths(dir);
+        const expBeforeLines = fs.readFileSync(p.experiences, 'utf8').split(/\r?\n/).filter(Boolean).length;
+        const snapshots = {
+          emotion: fs.readFileSync(p.emotion, 'utf8'),
+          drives: fs.readFileSync(p.drives, 'utf8'),
+          desires: fs.readFileSync(p.desires, 'utf8'),
+          beliefs: fs.readFileSync(p.beliefs, 'utf8'),
+          evolvingSelf: fs.readFileSync(p.evolvingSelf, 'utf8'),
+        };
+
+        const obsRes = await fetch(`${hub.baseUrl}/api/body/observe`, {
+          method: 'POST', headers: hAuth,
+          body: JSON.stringify({
+            bodyId: 'robot-1', bodyType: 'robot:kitchen', summary: '空手端烫锅被严重烫伤',
+            allowSpeak: false, urgency: 'high',
+            metadata: {
+              realityFeedback: {
+                origin: 'lived', stimulus: '空手端烫锅', chosenAction: '直接端',
+                realityOutcome: '手掌剧痛烫伤', valence: -0.9, arousal: 0.92, lesson: '先戴隔热手套',
+              },
+            },
+          }),
+        });
+        assert.equal(obsRes.status, 200);
+        const expApiRes = await fetch(`${hub.baseUrl}/api/archive/experience`, {
+          method: 'POST', headers: hAuth,
+          body: JSON.stringify({ bodyId: 'robot-1', bodyType: 'robot:kitchen', origin: 'lived', stimulus: '戴手套端锅', realityOutcome: '安全完成', valence: 0.85, lesson: '手套有效' }),
+        });
+        assert.equal(expApiRes.status, 200);
+
+        const expAfterLines = fs.readFileSync(p.experiences, 'utf8').split(/\r?\n/).filter(Boolean).length;
+        assert.equal(expAfterLines, expBeforeLines + 2);
+        assert.equal(fs.readFileSync(p.emotion, 'utf8'), snapshots.emotion);
+        assert.equal(fs.readFileSync(p.drives, 'utf8'), snapshots.drives);
+        assert.equal(fs.readFileSync(p.desires, 'utf8'), snapshots.desires);
+        assert.equal(fs.readFileSync(p.beliefs, 'utf8'), snapshots.beliefs);
+        assert.equal(fs.readFileSync(p.evolvingSelf, 'utf8'), snapshots.evolvingSelf);
+      },
+    );
   } finally {
     await ai.close();
   }

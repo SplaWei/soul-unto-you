@@ -198,7 +198,9 @@ export async function createSoulHubServer(options: {
   const dreamScheduler = new AutoDreamScheduler({
     config: config.dream,
     getArchiveDir: () => ctx.config.archiveDir,
-    runDream: () => runDreamConsolidation(ctx.config.archiveDir, { llm: ctx.llm, embedding: ctx.config.embedding, lock: ctx.presence }),
+    runDream: () => runDreamConsolidation(ctx.config.archiveDir, {
+      llm: ctx.llm, embedding: ctx.config.embedding, lock: ctx.presence, experimental: ctx.config.experimental,
+    }),
     onDreamCompleted: (res) => {
       ctx.events.emit('dream.completed', { ...res, trigger: 'auto-idle' });
       ctx.ws?.broadcastJson({ type: 'dream', trigger: 'auto-idle', result: res });

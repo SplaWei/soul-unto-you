@@ -8,7 +8,7 @@ import {
   type MemoryRetrievalResult,
 } from '../memory/search.ts';
 import { appendJournal } from '../soul/archive.ts';
-import type { BodyActionSpec, BodyType, ModalityPacket, SoulActionIntent } from '../soul/types.ts';
+import type { BodyActionSpec, BodyType, ExperimentalConfig, ModalityPacket, SoulActionIntent } from '../soul/types.ts';
 import type { SoulHubContext } from './body-api.ts';
 import type { ObserveInput } from './percept-pipeline.ts';
 
@@ -191,7 +191,7 @@ export function recordObserveInArchive(
   bodyType: BodyType,
   summary: string,
   input: ObserveInput,
-  allowRealityFeedback = false,
+  experimental?: Partial<ExperimentalConfig>,
 ) {
   const accountId = extractAccountId(input.metadata);
   const personHint = extractPersonIdHint(input.metadata);
@@ -203,7 +203,7 @@ export function recordObserveInArchive(
     bodyId, bodyType, speaker: input.displayName || `${bodyType}观察器`, role: 'witness', text: summary, provenance: 'verified',
     ...(obsPerson ? { personId: obsPerson.person.personId } : {}), importance: input.urgency === 'high' ? 85 : 55, metadata: input.metadata,
   });
-  return allowRealityFeedback && (input.metadata?.realityFeedback || input.urgency === 'high')
-    ? ingestRealityFeedback(dir, { bodyId, bodyType, summary, speaker: input.displayName, metadata: input.metadata })
+  return experimental?.enableFreeWill === true && (input.metadata?.realityFeedback || input.urgency === 'high')
+    ? ingestRealityFeedback(dir, { bodyId, bodyType, summary, speaker: input.displayName, metadata: input.metadata, experimental })
     : null;
 }

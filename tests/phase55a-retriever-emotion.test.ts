@@ -207,6 +207,7 @@ test('5.5a-C 多维情绪惯性平滑模型：防情绪瞬变、半群指数衰�
     recordExperience(dirLived, {
       bodyId: 'body-1', bodyType: 'robot:test', origin: 'lived',
       stimulus: '高温接触测试', realityOutcome: '受到严重灼伤剧痛', valence: -0.9, arousal: 0.94, lesson: '先戴隔热防护',
+      experimental: { enableEmotion: true },
     });
     const afterPain = loadEmotionState(dirLived, t0 + 1000);
     assert.ok(afterPain.valence < -0.25, `痛感后效价应显著为负，实际 ${afterPain.valence}`);
@@ -239,6 +240,7 @@ test('5.5a-C 多维情绪惯性平滑模型：防情绪瞬变、半群指数衰�
     recordExperience(dirInherited, {
       bodyId: 'body-1', bodyType: 'web', origin: 'inherited',
       stimulus: '口述高温提醒', realityOutcome: '听说未戴防护会烫伤', valence: -0.9, arousal: 0.94, lesson: '先戴隔热防护',
+      experimental: { enableEmotion: true },
     });
     const inhState = loadEmotionState(dirInherited, t0 + 1000);
     assert.ok(Math.abs(inhState.valence - 0.15) < Math.abs(afterPain.valence - 0.15));
