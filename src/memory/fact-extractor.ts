@@ -1,11 +1,9 @@
 import type { JournalEntry } from '../soul/types.ts';
-import { tokenizeText } from './experience.ts';
 import { normalizeFactCategory, type FactOperation, type MemoryFact } from './facts.ts';
 
 const QUESTION_RE = /[?？]|(?:住哪|哪儿|哪里|什么|叫啥|啥|喝啥|吃啥|几岁|多少|是不是|是否|吗$|呢$)/;
 const TRAILING_PARTICLE_RE = /[了啦啊呀呢哦嘛吧]+$/;
 const INLINE_CONNECTOR_RE = /(?:并且|而且|还有|同时|然后|改喝|爱喝|喜欢喝|改吃|爱吃|喜欢吃|对[^\s]{1,12}过敏|养了).*$/;
-const FILLER_TOKENS = new Set(['同行者', '居住', '住在', '喜欢', '爱喝', '喜欢喝', '爱吃', '喜欢吃', '工作', '现在', '目前', '已经', '最近']);
 
 interface FactPatternRule {
   category: string;
@@ -143,103 +141,4 @@ export function extractHeuristicFactOps(
     }
   }
   return ops;
-}
-
-function extractCoreTokens(text?: string): string[] {
-  const valueOnly = String(text || '')
-    .replace(/^.*?(?:居住在|住在|喜欢喝|爱喝|喜欢吃|爱吃|工作是|养了一只(?:叫[^\s的]{1,10}的)?|对)/, '')
-    .trim() || String(text || '');
-  const toks = tokenizeText(valueOnly).filter((t) => !FILLER_TOKENS.has(t));
-  if (toks.length) return toks;
-  const chars = valueOnly.match(/[\u4e00-\u9fa5a-z0-9]/gi) ?? [];
-  return chars.filter((c) => !'的了是在我你他她住喝吃'.includes(c));
-}
-
-function factMatchesValue(candidate?: string, target?: string): boolean {
-  const cToks = extractCoreTokens(candidate);
-  const tToks = extractCoreTokens(target);
-  if (!cToks.length || !tToks.length) return false;
-  const cLow = String(candidate || '').toLowerCase();
-  const tLow = String(target || '').toLowerCase();
-  return tToks.some((t) => cLow.includes(t)) || cToks.some((t) => tLow.includes(t));
-}
-
-/**
- * 真实 LLM 与时序确定性规则对账保护：
- * 当真实 LLM 在同一批次漏提旧事实、错留过期事实、或漏掉 UPDATE/DELETE 时，按日志 seq 自动补全冲突演化链，
- * 同时保留 LLM 提取的其他非冲突自由事实。
- */
-export function reconcileDreamFactOps(llmOps: FactOperation[], heuristicOps: FactOperation[]): FactOperation[] {
-  const normLlm = llmOps.map((op) => ({ ...op, category: normalizeFactCategory(op.category) }));
-  const normHeur = heuristicOps.map((op) => ({ ...op, category: normalizeFactCategory(op.category) }));
-  if (!normHeur.length) return normLlm;
-
-  const hByCat = new Map<string, FactOperation[]>();
-  for (const h of normHeur) {
-    if (!h.category) continue;
-    const arr = hByCat.get(h.category) ?? [];
-    arr.push(h);
-    hByCat.set(h.category, arr);
-  }
-  const lByCat = new Map<string, FactOperation[]>();
-  for (const l of normLlm) {
-    if (!l.category) continue;
-    const arr = lByCat.get(l.category) ?? [];
-    arr.push(l);
-    lByCat.set(l.category, arr);
-  }
-
-  const replacedCats = new Set<string>();
-  const staleSnippets: Array<{ oldFact: string; newFact: string }> = [];
-  const additions: FactOperation[] = [];
-
-  for (const [cat, hSlot] of hByCat) {
-    const lSlot = lByCat.get(cat) ?? [];
-    const hLatest = hSlot[hSlot.length - 1];
-
-    if (hSlot.length >= 2) {
-      const lLatest = lSlot[lSlot.length - 1];
-      const llmValidChain = lSlot.length >= 2
-        && (lLatest?.action === 'UPDATE' || lLatest?.action === 'DELETE')
-        && (hLatest.action === 'DELETE'
-          ? lLatest.action === 'DELETE'
-          : factMatchesValue(lLatest.fact, hLatest.fact));
-      if (!llmValidChain) {
-        replacedCats.add(cat);
-        additions.push(...hSlot);
-        for (const oldOp of hSlot.slice(0, -1)) {
-          if (oldOp.fact) staleSnippets.push({ oldFact: oldOp.fact, newFact: hLatest.fact || '' });
-        }
-      }
-      continue;
-    }
-
-    const hOnly = hSlot[0];
-    if (hOnly.action === 'UPDATE' || hOnly.action === 'DELETE') {
-      const llmHandled = lSlot.some((op) =>
-        op.action === hOnly.action
-        || (op.action === 'UPDATE' && factMatchesValue(op.fact, hOnly.fact))
-        || (op.action === 'ADD' && hOnly.action === 'UPDATE' && factMatchesValue(op.fact, hOnly.fact)),
-      );
-      if (!llmHandled) {
-        replacedCats.add(cat);
-        additions.push(hOnly);
-        if (hOnly.fact) staleSnippets.push({ oldFact: '', newFact: hOnly.fact });
-      }
-      continue;
-    }
-
-    const coveredByLlm = lSlot.length > 0
-      || normLlm.some((op) => op.action !== 'NONE' && factMatchesValue(op.fact, hOnly.fact));
-    if (!coveredByLlm) additions.push(hOnly);
-  }
-
-  const keptLlm = normLlm.filter((op) => {
-    if (op.category && replacedCats.has(op.category)) return false;
-    if (staleSnippets.some((s) => s.oldFact && factMatchesValue(op.fact, s.oldFact) && !factMatchesValue(op.fact, s.newFact))) {
-      return false;
-    }
-    return true;
-  });
-  return [...keptLlm, ...additions];
 }

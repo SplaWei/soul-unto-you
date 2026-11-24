@@ -14,7 +14,7 @@ import { initSoulArchive, resolveArchivePaths } from '../src/soul/archive.ts';
 import { awakenSoul } from '../src/soul/awakening.ts';
 import { authHeaders, createTestIdentity, withSandboxArchive, withTestHub } from './helpers/sandbox.ts';
 
-async function startDualEngineTestServer(options: { rerankDelayMs?: number; lazySingleBatch?: boolean } = {}) {
+async function startDualEngineTestServer(options: { rerankDelayMs?: number; nonInterferenceMode?: boolean } = {}) {
   const calls: Array<{ url: string; auth: string; body: Record<string, unknown> }> = [];
   let chatCount = 0;
   const json = (res: http.ServerResponse, data: unknown) => {
@@ -61,22 +61,23 @@ async function startDualEngineTestServer(options: { rerankDelayMs?: number; lazy
       const sys = String(msgs.find((m) => m.role === 'system')?.content || '');
       const user = String(msgs[msgs.length - 1]?.content || '');
       if (sys.includes('记忆整理器') || user.includes('梦境记忆整理器')) {
-        if (options.lazySingleBatch) {
+        if (options.nonInterferenceMode) {
+          const isChatter = user.includes('电影里男主搬去上海了');
           return json(res, {
             choices: [{ message: { content: JSON.stringify({
-              episodes: [{ title: '搬家与饮品', summary: '近况整理', bodyType: 'web' }],
+              episodes: [{ title: isChatter ? '电影闲聊' : '定居与饮品', summary: '日常记录', bodyType: 'web' }],
               commitments: [], completedCommitments: [], relations: [],
-              facts: [
+              facts: isChatter ? [] : [
                 { action: 'ADD', category: 'location', fact: '同行者居住在成都高新区' },
                 { action: 'ADD', category: 'drink', fact: '同行者喜欢喝美式咖啡' },
-                { action: 'ADD', category: 'other', fact: '同行者喜欢晴天的云' },
               ],
             }) } }],
           });
         }
+        const transcript = user.split('新经历如下：')[1] || '';
         const oldAddr = user.match(/\[id:(fact_[a-z0-9-]+)\]\[residence\]/)?.[1];
         const oldDrink = user.match(/\[id:(fact_[a-z0-9-]+)\]\[drink_preference\]/)?.[1];
-        const out = user.includes('搬去成都高新区')
+        const out = transcript.includes('搬去成都高新区')
           ? {
               episodes: [{ title: '搬去成都高新区并改喝拿铁', summary: '搬去成都高新区，改喝拿铁', bodyType: 'web' }],
               commitments: [], completedCommitments: [], relations: [],
@@ -88,7 +89,7 @@ async function startDualEngineTestServer(options: { rerankDelayMs?: number; lazy
           : {
               episodes: [{ title: '上海浦东与美式咖啡', summary: '目前住上海浦东，爱喝美式', bodyType: 'web' }],
               commitments: [], completedCommitments: [], relations: [],
-              facts: user.includes('上海浦东') && !user.includes('当前暂无已归档有效事实') && user.indexOf('当前已知有效长期事实') < user.indexOf('上海浦东')
+              facts: transcript.includes('上海浦东')
                 ? [
                     { action: 'ADD', category: 'residence', fact: '同行者住在上海浦东' },
                     { action: 'ADD', category: 'drink_preference', fact: '同行者爱喝美式' },
@@ -328,22 +329,29 @@ test('A4-5 慢速 Rerank 锁外执行不阻塞并发写入 & HTTP 外部 MemoryR
   }
 });
 
-test('A4-6 真实LLM单批做梦漏旧值/错留旧饮品时，时序对账自动补全 superseded 并保留自由事实', async () => {
-  const srv = await startDualEngineTestServer({ lazySingleBatch: true });
+test('A4-6 真实LLM正常返回空facts时不越权覆盖（防电影/他人闲聊误伤）且支持分类别名归一', async () => {
+  const srv = await startDualEngineTestServer({ nonInterferenceMode: true });
   try {
-    await withTestHub({ prefix: 'soul-a4-reconcile-', llmBaseUrl: `${srv.origin}/v1` }, async ({ hub, dir }) => {
-      const p = resolveArchivePaths(dir);
-      await postPercept(hub.baseUrl, hub.apiToken, 'w1', '我住上海浦东，爱喝美式');
-      for (let i = 1; i <= 5; i += 1) await postPercept(hub.baseUrl, hub.apiToken, 'w1', `第 ${i} 轮闲聊：看云。`);
-      await postPercept(hub.baseUrl, hub.apiToken, 'w1', '我上周搬去成都高新区，改喝拿铁了');
-      const dRes = (await (await fetch(`${hub.baseUrl}/api/dream`, { method: 'POST', headers: authHeaders(hub.apiToken), body: '{}' })).json()) as {
-        ok: boolean; factsUpdated: number;
+    await withTestHub({ prefix: 'soul-a4-noninterfere-', llmBaseUrl: `${srv.origin}/v1` }, async ({ hub, dir }) => {
+      await postPercept(hub.baseUrl, hub.apiToken, 'w1', '我现在住成都高新区，平时喜欢喝美式咖啡');
+      const d1 = (await (await fetch(`${hub.baseUrl}/api/dream`, { method: 'POST', headers: authHeaders(hub.apiToken), body: '{}' })).json()) as {
+        ok: boolean; factsAdded: number;
       };
-      assert.equal(dRes.ok, true);
-      assert.equal(dRes.factsUpdated, 2);
-      const rows = assertMoveFactsRows(p.facts);
-      assert.equal(rows.find((r) => r.fact.includes('晴天的云'))?.status, 'active');
-      assert.equal(listActiveFacts(dir).some((f) => f.fact.includes('上海浦东') || f.fact.includes('美式')), false);
+      assert.equal(d1.ok && d1.factsAdded === 2, true);
+      const afterD1 = listActiveFacts(dir);
+      assert.equal(afterD1.some((f) => f.category === 'residence' && f.fact.includes('成都高新区')), true);
+      assert.equal(afterD1.some((f) => f.category === 'drink_preference' && f.fact.includes('美式咖啡')), true);
+
+      await postPercept(hub.baseUrl, hub.apiToken, 'w1', '昨天看电影里男主搬去上海了，我朋友也爱喝可乐');
+      const d2 = (await (await fetch(`${hub.baseUrl}/api/dream`, { method: 'POST', headers: authHeaders(hub.apiToken), body: '{}' })).json()) as {
+        ok: boolean; factsAdded: number; factsUpdated: number; factsDeleted: number;
+      };
+      assert.equal(d2.ok && d2.factsAdded === 0 && d2.factsUpdated === 0 && d2.factsDeleted === 0, true);
+      const active = listActiveFacts(dir);
+      assert.equal(active.length, 2);
+      assert.equal(active.some((f) => f.category === 'residence' && f.fact.includes('成都高新区')), true);
+      assert.equal(active.some((f) => f.category === 'drink_preference' && f.fact.includes('美式咖啡')), true);
+      assert.equal(listFacts(dir).some((f) => f.fact.includes('上海') || f.fact.includes('可乐')), false);
     });
   } finally {
     await srv.close();

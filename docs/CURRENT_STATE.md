@@ -7,7 +7,7 @@
 - **战略校准（已由主人拍板）**：确立“纯文本灵魂档案规范 + 多躯体协议中枢”定位；严格按 **先 Phase A（`v0.6` 内核瘦身 + 记忆升级 + 真机评测）→ 后 Phase B（`v0.7` 头部躯体生态联调）** 串行推进。
 
 ## 2. 环境与健康基线
-- **自动化验证**：`node --test tests/*.test.ts` **80/80 全绿**（含工程门禁 1~6、Task A2 实验开关隔离、Task A3 `node:sqlite` FTS5 索引/旧版 Schema 缺列自动重建/万级性能基线、Task A4 通用 Embedding+Rerank 重排/无密钥回退 FTS5/`MEMORIES/facts.jsonl` 事实冲突消解与 LLM 时序对账、零隐私扫描）。
+- **自动化验证**：`node --test tests/*.test.ts` **80/80 全绿**（含工程门禁 1~6、Task A2 实验开关隔离、Task A3 `node:sqlite` FTS5 索引/旧版 Schema 缺列自动重建/万级性能基线、Task A4 通用 Embedding+Rerank 重排/无密钥回退 FTS5/`MEMORIES/facts.jsonl` 事实冲突消解（真实LLM优先、离线规则兜底）、零隐私扫描）。
 - **Task A4 新增纯文本与配置**：
   - `MEMORIES/facts.jsonl`（可选事实账本，支持 `ADD/UPDATE/DELETE/NONE` 状态机与 `superseded`/`superseded_by` 历史追溯，检索与 Prompt 仅用 `active` 事实）。
   - `soul-hub.local.json` 新增 `rerank` 配置段与 `embedding.apiKey`/`dimensions`、`retriever.topK`/`minScore`（无密钥自动回退离线 FTS5）；外部插座协议见 [MEMORY-RETRIEVER-PROTOCOL.md](./MEMORY-RETRIEVER-PROTOCOL.md)。
@@ -20,7 +20,7 @@
 4. **档案隔离**：严禁触碰 `private-souls/`、`~/SoulArchive/`、`*.local.json`、`.soul-hub.token`；测试仅用临时沙盒。
 
 ## 4. 下一步精确任务（严格按 [V06_EXECUTION_GUIDE.md](./V06_EXECUTION_GUIDE.md) 逐项串行）
-1. **已完成待验收 👉 `Task A4`**：双层记忆引擎升级（云端/本地 Embedding+Rerank 与 Mem0 风格 `facts.jsonl` 冲突消解）已通过 78/78 自动化测试。
+1. **已完成待验收 👉 `Task A4`**：双层记忆引擎升级（云端/本地 Embedding+Rerank 与 Mem0 风格 `facts.jsonl` 冲突消解）已通过 80/80 自动化测试。
 2. **下一步 👉 主人验收通过后，启动 `Task A5`**：升级 `scripts/eval-real-llm.ts`，实现 30 轮（可扩展至 100 轮）真实 LLM 防幻觉评测基准与中文 Markdown 成绩单。
 3. **Phase B（`v0.7` 预留，Phase A 全通过后启动）**：SillyTavern 角色卡 V2 导入与 `/v1` 联调 → Open-LLM-VTuber / AstrBot 多端实测 → 一键启动分发与实机演示。
 

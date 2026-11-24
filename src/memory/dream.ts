@@ -15,7 +15,7 @@ import {
   type ValidatedDreamPlan,
 } from './dream-parser.ts';
 import { lexicalSimilarity } from './experience.ts';
-import { extractHeuristicFactOps, reconcileDreamFactOps } from './fact-extractor.ts';
+import { extractHeuristicFactOps } from './fact-extractor.ts';
 import { applyFactOperations, listActiveFacts } from './facts.ts';
 import { mergeDreamRelation } from './relations.ts';
 import { estimateEmotionSignals, flushPendingReinforcements } from './retention.ts';
@@ -227,10 +227,9 @@ export async function runDreamConsolidation(
       coBecomingAdded = res.coBecomingAdded;
     }
 
-    const heuristicOps = extractHeuristicFactOps(snap.pending, listActiveFacts(archiveDir), latestMeta.partnerName);
     const factOps = validatedPlan?.facts !== undefined
-      ? reconcileDreamFactOps(validatedPlan.facts, heuristicOps)
-      : heuristicOps;
+      ? validatedPlan.facts
+      : extractHeuristicFactOps(snap.pending, listActiveFacts(archiveDir), latestMeta.partnerName);
     const factRep = applyFactOperations(archiveDir, factOps, {
       nowMs,
       defaultSubject: latestMeta.partnerName,
