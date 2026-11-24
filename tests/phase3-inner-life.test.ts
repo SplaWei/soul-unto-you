@@ -104,6 +104,7 @@ test('3.3 先验认知态度(信/疑/忽)随内驱力演化 + 实践反馈自动
       query: '现在去探索一下',
       bodyId: 'mc-1',
       bodyType: 'game:minecraft',
+      experimental: { enableInnerLife: true, enableFreeWill: true },
     });
     assert.ok(recall.systemPrompt.includes('内在驱力场与先验认知态度'));
     assert.ok(recall.systemPrompt.includes('自主微心愿'));
@@ -116,7 +117,10 @@ test('3.3 先验认知态度(信/疑/忽)随内驱力演化 + 实践反馈自动
 test('3.3 静默灵魂心搏四选一 & /api/inner-life HTTP 端到端闭环', async () => {
   const archiveDir = makeTempDir('soul-hb-srv-');
   const configPath = path.join(archiveDir, 'config.json');
-  const hub = await createSoulHubServer({ archiveDir, configPath, host: '127.0.0.1', port: 0 });
+  const hub = await createSoulHubServer({
+    archiveDir, configPath, host: '127.0.0.1', port: 0,
+    experimental: { enableInnerLife: true, enableFreeWill: true, enableHeartbeat: true, enableEmotion: true },
+  });
   const hAuth = { 'Content-Type': 'application/json', 'X-Soul-Token': hub.apiToken };
   const hGet = { 'X-Soul-Token': hub.apiToken };
 

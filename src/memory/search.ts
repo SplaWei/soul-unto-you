@@ -5,7 +5,7 @@ import { PROVENANCE_LABELS } from '../soul/covenant.ts';
 import { buildExperienceAndFreeWillPrompt } from '../soul/free-will.ts';
 import { buildEvolvingSelfPromptSection } from '../soul/living-self.ts';
 import type {
-  BodyRegistration, BodyType, Commitment, LivedExperience, MemoryEpisode,
+  BodyRegistration, BodyType, Commitment, ExperimentalConfig, LivedExperience, MemoryEpisode,
   PresenceState, RecallTrace, SoulDesire, SoulDrives,
 } from '../soul/types.ts';
 import { lexicalSimilarity, tokenizeText } from './experience.ts';
@@ -112,12 +112,13 @@ export async function buildRecallContext(params: {
   retriever?: MemoryRetriever;
   precomputedRetrieval?: MemoryRetrievalResult;
   activePerson?: PersonResolution | null;
+  experimental?: Partial<ExperimentalConfig>;
 }): Promise<{
   systemPrompt: string;
   recalled: RecalledItem[];
   recalledExperiences: LivedExperience[];
-  drives: SoulDrives;
-  emotion: SoulEmotionState;
+  drives?: SoulDrives;
+  emotion?: SoulEmotionState;
   activeDesires: SoulDesire[];
   activeCommitments: Commitment[];
   recentEpisodes: MemoryEpisode[];
@@ -128,10 +129,14 @@ export async function buildRecallContext(params: {
 }> {
   const nowMs = params.nowMs ?? Date.now();
   const reinforce = params.reinforce !== false;
+  const exp = params.experimental ?? {};
+  const enableEmotion = Boolean(exp.enableEmotion);
+  const enableInnerLife = Boolean(exp.enableInnerLife);
+  const enableFreeWill = Boolean(exp.enableFreeWill);
   const archive = loadSoulArchive(params.archiveDir, 40);
-  const drives = loadDrives(params.archiveDir);
-  const emotion = loadEmotionState(params.archiveDir, nowMs);
-  const activeDesires = listDesires(params.archiveDir).filter((d) => d.status === 'active');
+  const drives = enableInnerLife ? loadDrives(params.archiveDir) : undefined;
+  const emotion = enableEmotion ? loadEmotionState(params.archiveDir, nowMs) : undefined;
+  const activeDesires = enableInnerLife ? listDesires(params.archiveDir).filter((d) => d.status === 'active') : [];
   const activeCommitments = archive.commitments.filter((c) => c.status === 'active');
   const recentEpisodes = archive.episodes.slice(-5);
 
@@ -141,7 +146,7 @@ export async function buildRecallContext(params: {
     bodyId: params.bodyId,
     bodyType: params.bodyType,
     topK: 5,
-    experienceTopK: 4,
+    experienceTopK: enableFreeWill ? 4 : 0,
     nowMs,
     embedding: params.embedding,
     queryVec: params.queryVec,
@@ -150,13 +155,13 @@ export async function buildRecallContext(params: {
   });
 
   const recalled = retrieval.items;
-  const recalledExperiences = retrieval.experiences;
+  const recalledExperiences = enableFreeWill ? retrieval.experiences : [];
   const queryVec = retrieval.queryVec ?? null;
   const vectorMap = retrieval.vectorMap ?? null;
 
   if (reinforce) {
     reinforceEpisodesFromHits(params.archiveDir, recalled, nowMs);
-    if (recalledExperiences.length) {
+    if (enableFreeWill && recalledExperiences.length) {
       const hitExpIds = recalledExperiences
         .filter((exp) => {
           const hay = `${exp.stimulus} ${exp.chosenAction} ${exp.realityOutcome} ${exp.lesson} ${(exp.tags ?? []).join(' ')}`;
@@ -173,6 +178,7 @@ export async function buildRecallContext(params: {
   const lastGap = lastPartnerOrSoul ? formatRelativeAge(lastPartnerOrSoul.timestamp, nowMs) : '首次苏醒';
 
   const sections: string[] = [
+    archive.seedMarkdown.trim(),
     archive.soulMarkdown.trim(),
     '---',
     '## 全局实时在场状态 (Global Presence)',
@@ -188,12 +194,12 @@ export async function buildRecallContext(params: {
   }
   if (params.presence) {
     sections.push(`- 当前活动：${params.presence.currentActivity || '刚苏醒'}`);
-    sections.push(`- 当前情绪：${params.presence.mood || '平静温柔'}（精力 ${params.presence.energy}%）`);
+    if (enableEmotion) sections.push(`- 当前情绪：${params.presence.mood || '平静温柔'}（精力 ${params.presence.energy}%）`);
     if (params.presence.recentBodyTrace.length) {
       sections.push(`- 跨躯体近期足迹：${params.presence.recentBodyTrace.slice(-5).join(' → ')}`);
     }
   }
-  sections.push(formatEmotionPromptLine(emotion));
+  if (enableEmotion && emotion) sections.push(formatEmotionPromptLine(emotion));
   if (params.activePerson) sections.push(formatActivePersonPromptLine(params.activePerson));
 
   sections.push('', '## 未完成约定与跨端承诺 (Active Commitments · 务必优先记在心上)');
@@ -253,8 +259,12 @@ export async function buildRecallContext(params: {
     }
   }
 
-  const evoSection = buildEvolvingSelfPromptSection(params.archiveDir);
-  sections.push(buildExperienceAndFreeWillPrompt(recalledExperiences, drives, activeDesires, params.bodyRegistration?.rules) + (evoSection ? `\n${evoSection}` : ''));
+  const expPrompt = buildExperienceAndFreeWillPrompt(
+    recalledExperiences, drives, activeDesires, params.bodyRegistration?.rules, { enableFreeWill, enableInnerLife },
+  );
+  const evoSection = enableInnerLife ? buildEvolvingSelfPromptSection(params.archiveDir) : '';
+  const combinedExp = [expPrompt, evoSection].filter(Boolean).join('\n');
+  if (combinedExp) sections.push(combinedExp);
   sections.push(
     '',
     '## 表达与诚实溯源铁律',
@@ -272,10 +282,14 @@ export async function buildRecallContext(params: {
     ...(embModel ? { embeddingModel: embModel } : {}),
     retrieverId: retrieval.retrieverId,
     ...(retrieval.fallbackFrom ? { retrieverFallbackFrom: retrieval.fallbackFrom } : {}),
-    emotionSummary: {
-      valence: emotion.valence, arousal: emotion.arousal, safety: emotion.safety, moodLabel: emotion.moodLabel,
-      ...(emotion.rawMoodHint ? { rawMoodHint: emotion.rawMoodHint } : {}),
-    },
+    ...(enableEmotion && emotion
+      ? {
+          emotionSummary: {
+            valence: emotion.valence, arousal: emotion.arousal, safety: emotion.safety, moodLabel: emotion.moodLabel,
+            ...(emotion.rawMoodHint ? { rawMoodHint: emotion.rawMoodHint } : {}),
+          },
+        }
+      : {}),
     ...(params.activePerson ? { activePerson: toActivePersonTrace(params.activePerson) } : {}),
     activeCommitments: activeCommitments.slice(-8).map((c) => ({
       id: c.id, title: c.title, sourceBodyType: c.sourceBodyType, provenance: c.provenance,
@@ -305,8 +319,10 @@ export async function buildRecallContext(params: {
         lesson: exp.lesson, retentionPct: ret.retentionPct, strength: ret.strength, recallCount: exp.recallCount ?? 0,
       };
     }),
-    drivesSummary: { ...drives, epistemicLabel: EPISTEMIC_LABELS[drives.epistemicTendency] },
-    activeDesires: activeDesires.slice(0, 5).map((d) => ({ id: d.id, title: d.title, urgency: d.urgency, triggerSource: d.triggerSource })),
+    ...(enableInnerLife && drives ? {
+      drivesSummary: { ...drives, epistemicLabel: EPISTEMIC_LABELS[drives.epistemicTendency] },
+      activeDesires: activeDesires.slice(0, 5).map((d) => ({ id: d.id, title: d.title, urgency: d.urgency, triggerSource: d.triggerSource })),
+    } : {}),
     crossBodyTraces: params.presence?.recentBodyTrace.slice(-5) ?? [],
     availableActions: params.bodyRegistration?.actions?.map((a) => a.name) ?? [],
   };

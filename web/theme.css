@@ -195,13 +195,6 @@
 .template-box { border-top: 1px dashed var(--rule-strong); padding-top: 10px; margin-top: 12px; }
 .tpl-row { margin-top: 6px; }
 .tpl-label { display: block; font-size: 11.5px; color: var(--ink-soft); font-weight: 600; }
-.shelved-card { opacity: 0.88; border-style: dashed; }
-.shelved-summary {
-  display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
-  cursor: pointer; font-family: var(--font-serif); font-size: 15px; font-weight: 700; color: var(--ink);
-}
-.shelved-summary > span:first-child::before { content: "▸ "; }
-.shelved-details[open] .shelved-summary > span:first-child::before { content: "▾ "; }
 
 .badge {
   background: var(--surface-alt);

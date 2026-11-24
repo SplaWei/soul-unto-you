@@ -124,6 +124,7 @@ test('5.5a-B 外部 HTTP 记忆引擎插座：三段短锁不阻塞并发写 & �
   const token = 'tok-55a-http';
   const hub = await createSoulHubServer({
     archiveDir: dir, configPath: cfgPath, port: 0, apiToken: token,
+    experimental: { enableFreeWill: true },
     retriever: createHttpMemoryRetriever({ id: 'mock-http', name: 'Mock HTTP Engine', endpoint: mockUrl, timeoutMs: 2500 }),
   });
 
@@ -251,7 +252,10 @@ test('5.5a-C 多维情绪惯性平滑模型：防情绪瞬变、半群指数衰�
 test('5.5a-D 端到端 HTTP 情绪接口、心搏衰减、Prompt 注入与清理复位闭环', async () => {
   const { dir, cfgPath } = makeSandbox('soul-55a-e2e-');
   const token = 'tok-55a-e2e';
-  const hub = await createSoulHubServer({ archiveDir: dir, configPath: cfgPath, port: 0, apiToken: token });
+  const hub = await createSoulHubServer({
+    archiveDir: dir, configPath: cfgPath, port: 0, apiToken: token,
+    experimental: { enableEmotion: true, enableHeartbeat: true, enableInnerLife: true },
+  });
   try {
     const headers = { 'Content-Type': 'application/json', 'X-Soul-Token': token };
     const ilRes = await fetch(`${hub.baseUrl}/api/inner-life`, { headers: { 'X-Soul-Token': token } });
@@ -278,7 +282,7 @@ test('5.5a-D 端到端 HTTP 情绪接口、心搏衰减、Prompt 注入与清理
     assert.equal(hbJson.ok, true);
     assert.ok(hbJson.emotion && hbJson.emotion.arousal < postEmoJson.emotion.arousal);
 
-    const ctx = await buildRecallContext({ archiveDir: dir, query: '现在状态如何', bodyId: 'web-1', bodyType: 'web', reinforce: false });
+    const ctx = await buildRecallContext({ archiveDir: dir, query: '现在状态如何', bodyId: 'web-1', bodyType: 'web', reinforce: false, experimental: { enableEmotion: true } });
     assert.ok(ctx.systemPrompt.includes('情绪惯性矢量：'));
     assert.ok(ctx.recallTrace.emotionSummary);
     assert.equal(ctx.recallTrace.emotionSummary.moodLabel, ctx.emotion.moodLabel);

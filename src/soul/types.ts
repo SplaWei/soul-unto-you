@@ -368,3 +368,11 @@ export interface RecallTrace {
   emotionSummary?: { valence: number; arousal: number; safety: number; moodLabel: string; rawMoodHint?: string };
   activePerson?: { personId: string; name: string; role: string; familiarity: number; interactionCount: number; matchedBy: string; channels: string[] };
 }
+
+export interface ExperimentalConfig {
+  enableEmotion: boolean;
+  enableInnerLife: boolean;
+  enableFreeWill: boolean;
+  enableHeartbeat: boolean;
+  enableResurrection: boolean;
+}

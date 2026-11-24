@@ -15,7 +15,7 @@ async function postJson<T>(url: string, body: unknown, token: string, headers: R
 test('交叉验证 1：四向协议互通 (HTTP ↔ WS ↔ OpenAI Proxy ↔ MCP) + 磁盘档案独立对账', async () => {
   const ai = await withMockAiServer();
   try {
-    await withTestHub({ prefix: 'soul-x4-', llmBaseUrl: ai.baseUrl, embeddingBaseUrl: ai.baseUrl }, async ({ hub, dir }) => {
+    await withTestHub({ prefix: 'soul-x4-', llmBaseUrl: ai.baseUrl, embeddingBaseUrl: ai.baseUrl, experimental: { enableFreeWill: true } }, async ({ hub, dir }) => {
       const h = { 'X-Soul-Token': hub.apiToken };
       await postJson(`${hub.baseUrl}/api/body/percept`, {
         bodyId: 'http-a', bodyType: 'web', text: '帮我记住：我对花生严重过敏，绝对不能碰',

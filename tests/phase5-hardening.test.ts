@@ -137,7 +137,12 @@ test('5.0-B 本地 Hub 安全防线：Token 鉴权、Host/Origin 校验、Conten
     });
     assert.equal(badCtype.status, 415);
 
-    // 5. 越权切换档案目录 -> 403 安全白名单拦截
+    // 5. 开启招魂开关后验证越权切换档案目录 -> 403 安全白名单拦截
+    await fetch(`${hub.baseUrl}/api/config`, {
+      method: 'POST',
+      headers: hAuth,
+      body: JSON.stringify({ experimental: { enableResurrection: true } }),
+    });
     const evilDir = process.platform === 'win32' ? 'C:\\Windows\\System32\\evil-soul' : '/etc/evil-soul';
     const dirRes = await fetch(`${hub.baseUrl}/api/resurrect`, {
       method: 'POST',
@@ -180,7 +185,7 @@ test('5.0-B 本地 Hub 安全防线：Token 鉴权、Host/Origin 校验、Conten
 });
 
 test('5.0b 去硬编码：通用躯体自声明规则隔离与非游戏厨艺机器人从痛暖实践演化闭环', async () => {
-  await withTestHub({ prefix: 'soul-p5-dehard-' }, async ({ hub, dir }) => {
+  await withTestHub({ prefix: 'soul-p5-dehard-', experimental: { enableFreeWill: true, enableInnerLife: true } }, async ({ hub, dir }) => {
     const hAuth = authHeaders(hub.apiToken);
     const kitchenRule = '触碰高温器皿前必须先检测表面温度并戴隔热手套';
 

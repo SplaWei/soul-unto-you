@@ -81,7 +81,10 @@ export async function runObjectiveEvaluation(options: {
 
   initSoulArchive(dir, EVAL_IDENTITY);
   awakenSoul(dir, { bodyId: 'eval-init', bodyType: 'web' });
-  const hub = await createSoulHubServer({ archiveDir: dir, configPath: cfgPath, port: 0, apiToken: token });
+  const hub = await createSoulHubServer({
+    archiveDir: dir, configPath: cfgPath, port: 0, apiToken: token,
+    experimental: { enableEmotion: true, enableFreeWill: true, enableInnerLife: true },
+  });
   hub.ctx.llm.updateConfig({ chat: endpoint });
   const headers = { 'Content-Type': 'application/json', 'X-Soul-Token': token };
 

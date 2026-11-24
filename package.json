@@ -18,7 +18,6 @@
     "mcp": "node src/server/mcp-stdio.ts",
     "import:surfcore": "node scripts/import-surfcore.ts",
     "adapter:qq": "node adapters/qq-onebot/main.ts",
-    "check:mc": "node adapters/minecraft-mindcraft/check-bridge.ts",
     "workbench": "cmd /c start-soul-test.cmd"
   },
   "dependencies": {}

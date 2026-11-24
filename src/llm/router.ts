@@ -2,7 +2,7 @@ import type { DreamLlmAdapter } from '../memory/dream.ts';
 import type { ResurrectionLlmAdapter } from '../resurrection/reconstructor.ts';
 import { evaluateFreeWillDecision, runExperienceAwareMockChat } from '../soul/free-will.ts';
 import type {
-  BodyActionSpec, BodyType, FreeWillDecision, LivedExperience,
+  BodyActionSpec, BodyType, ExperimentalConfig, FreeWillDecision, LivedExperience,
   ModalityPacket, SoulActionIntent, SoulDrives,
 } from '../soul/types.ts';
 import {
@@ -46,6 +46,7 @@ export interface ChatTurnInput {
   observeMode?: boolean;
   recalledExperiences?: LivedExperience[];
   drives?: SoulDrives;
+  experimental?: Partial<ExperimentalConfig>;
 }
 
 export interface ChatTurnResult {
@@ -63,6 +64,7 @@ export interface ChatTurnResult {
   toolFollowUpError?: string;
   fallbackFrom?: string;
   attemptedModels?: string[];
+  usedSystemPrompt?: string;
 }
 
 function formatModalitiesNote(modalities?: ModalityPacket[]): string {
@@ -115,6 +117,7 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
     modelUsed: string;
     attemptedModels: string[];
     fallbackFrom?: string;
+    usedSystemPrompt: string;
   }> {
     if (ep.driver !== 'mock' && !String(ep.baseUrl ?? '').trim() && !String(ep.apiKey ?? '').trim()) {
       throw new Error('LLM 未配置：请先填写 baseUrl 或 apiKey，已阻止向默认公网端点外发灵魂档案');
@@ -143,9 +146,11 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
       };
 
       const wantTools = Boolean(toolOpts?.bundle);
-      let out = await callSingle(systemPrompt, wantTools);
+      let usedSys = systemPrompt;
+      let out = await callSingle(usedSys, wantTools);
       if (!out.ok && out.toolsUnsupported && wantTools) {
-        out = await callSingle(toolOpts?.fallbackSystemPrompt || systemPrompt, false);
+        usedSys = toolOpts?.fallbackSystemPrompt || systemPrompt;
+        out = await callSingle(usedSys, false);
       }
       if (out.ok) {
         return {
@@ -155,6 +160,7 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
           rawOpenAiToolCalls: out.rawOpenAiToolCalls,
           modelUsed: m,
           attemptedModels: tried,
+          usedSystemPrompt: usedSys,
           ...(i > 0 ? { fallbackFrom: models[0] } : {}),
         };
       }
@@ -214,23 +220,34 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
 
   async chat(input: ChatTurnInput): Promise<ChatTurnResult> {
     const fullUserText = `${input.userText}${formatModalitiesNote(input.modalities)}`;
+    const exp = input.experimental;
+    const enableEmotion = exp ? Boolean(exp.enableEmotion) : true;
+    const enableFreeWill = exp ? Boolean(exp.enableFreeWill) : true;
+    const extCtx = input.externalSystemContext?.trim()
+      ? `\n\n## 当前外部躯体客户端环境与指令说明\n请保持你的灵魂人格与跨躯体记忆，同时按需遵循以下客户端环境状态与命令规范：\n${input.externalSystemContext.trim().slice(0, 4000)}`
+      : '';
+    const baseSystem = `${input.systemPrompt}${extCtx}`;
     if (this.config.chat.driver === 'mock') {
       const mockOut = runExperienceAwareMockChat({
         systemPrompt: input.systemPrompt, userText: fullUserText, speaker: input.speaker,
         bodyType: input.bodyType, soulName: input.soulName, catchphrase: input.catchphrase,
         availableActions: input.availableActions, modalities: input.modalities,
-        observeMode: input.observeMode, recalledExperiences: input.recalledExperiences, drives: input.drives,
+        observeMode: input.observeMode, recalledExperiences: input.recalledExperiences,
+        drives: input.drives, enableFreeWill,
       });
-      return { ...mockOut, driver: 'mock', model: 'soul-offline-mock' };
+      return {
+        ...mockOut,
+        mood: enableEmotion ? mockOut.mood : '温柔平静',
+        driver: 'mock',
+        model: 'soul-offline-mock',
+        usedSystemPrompt: baseSystem,
+      };
     }
     const useNative = this.config.chat.toolCalling !== 'tag';
-    const toolBundle = useNative ? buildSoulToolBundle(input.availableActions, input.observeMode) : undefined;
-    const extCtx = input.externalSystemContext?.trim()
-      ? `\n\n## 当前外部躯体客户端环境与指令说明\n请保持你的灵魂人格与跨躯体记忆，同时按需遵循以下客户端环境状态与命令规范：\n${input.externalSystemContext.trim().slice(0, 4000)}`
-      : '';
-    const baseSystem = `${input.systemPrompt}${extCtx}`;
-    const fullSystem = `${baseSystem}${buildMetaInstruction(input.availableActions, input.observeMode, useNative)}`;
-    const fallbackSystem = `${baseSystem}${buildMetaInstruction(input.availableActions, input.observeMode, false)}`;
+    const toolOpts = { enableEmotion, enableFreeWill };
+    const toolBundle = useNative ? buildSoulToolBundle(input.availableActions, input.observeMode, toolOpts) : undefined;
+    const fullSystem = `${baseSystem}${buildMetaInstruction(input.availableActions, input.observeMode, useNative, toolOpts)}`;
+    const fallbackSystem = `${baseSystem}${buildMetaInstruction(input.availableActions, input.observeMode, false, toolOpts)}`;
     const userPromptText = `[${input.bodyType}] ${input.speaker}: ${fullUserText}`;
 
     const first = await this.runEndpoint(this.config.chat, fullSystem, userPromptText, input.images, {
@@ -263,16 +280,18 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
     });
     const reply = toolFollowUpFailed ? '' : merged.reply;
     const actions = toolFollowUpFailed ? [] : merged.actions;
-    const freeWill = evaluateFreeWillDecision({
-      userText: input.userText, replyText: reply, rawStance: merged.rawStance,
-      rawReason: merged.rawReason, recalledExperiences: input.recalledExperiences ?? [], bodyType: input.bodyType,
-    });
+    const freeWill = enableFreeWill
+      ? evaluateFreeWillDecision({
+          userText: input.userText, replyText: reply, rawStance: merged.rawStance,
+          rawReason: merged.rawReason, recalledExperiences: input.recalledExperiences ?? [], bodyType: input.bodyType,
+        })
+      : undefined;
     return {
       reply,
       decidedToSpeak: toolFollowUpFailed ? false : merged.decidedToSpeak,
-      mood: merged.mood,
+      mood: enableEmotion ? merged.mood : '温柔平静',
       actions,
-      freeWill,
+      ...(freeWill ? { freeWill } : {}),
       ...(merged.selfImportant ? { selfImportant: true, selfImportantReason: merged.selfImportantReason } : {}),
       driver: this.config.chat.driver,
       model: first.modelUsed,
@@ -280,6 +299,7 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
       ...(toolFollowUpFailed ? { toolFollowUpFailed: true, toolFollowUpError } : {}),
       attemptedModels: first.attemptedModels,
       ...(first.fallbackFrom ? { fallbackFrom: first.fallbackFrom } : {}),
+      usedSystemPrompt: first.usedSystemPrompt,
     };
   }
 

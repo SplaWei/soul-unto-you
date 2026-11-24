@@ -138,6 +138,7 @@ async function refreshConfigAndSockets({ preserveInputs = false } = {}) {
     $('cfgDreamEnabled').checked = c.dream?.enabled !== false;
     $('cfgDreamIdleMin').value = String(c.dream?.idleMinutes ?? 15);
     $('cfgDreamMinPending').value = String(c.dream?.minPendingEntries ?? 4);
+    for (const [id, k] of EXP_MAP) if ($(id)) $(id).checked = Boolean(c.experimental?.[k]);
   }
   const ds = dreamRes?.scheduler;
   const dreamState = ds?.enabled ? tra('app.dreamOn', '已开启') : tra('app.dreamOff', '已暂停');
@@ -333,12 +334,14 @@ $('configForm').addEventListener('submit', async (e) => {
     embedding: { enabled: $('cfgEmbedEnabled').checked, endpoint: $('cfgEmbedUrl').value.trim(), model: $('cfgEmbedModel').value.trim() },
     voice: { enabled: $('cfgVoiceEnabled').checked, driver: 'gsv', baseUrl: $('cfgVoiceUrl').value.trim() },
     dream: { enabled: $('cfgDreamEnabled').checked, idleMinutes: Math.max(0, Number($('cfgDreamIdleMin').value) || 0), minPendingEntries: Math.max(1, Math.floor(Number($('cfgDreamMinPending').value) || 1)) },
+    experimental: Object.fromEntries(EXP_MAP.map(([id, k]) => [k, Boolean($(id)?.checked)])),
   });
   $('cfgSaveMsg').textContent = res.ok ? tra('app.cfgSaved', '已保存 ✓') : tra('app.failed', `失败: ${res.error}`, { err: res.error });
   await Promise.all([refreshConfigAndSockets(), refreshArchive()]);
 });
 
 const readFormEmbeddingCfg = () => ({ enabled: Boolean($('cfgEmbedEnabled').checked), endpoint: $('cfgEmbedUrl').value.trim(), model: $('cfgEmbedModel').value.trim() });
+const EXP_MAP = [['cfgExpEmotion', 'enableEmotion'], ['cfgExpInnerLife', 'enableInnerLife'], ['cfgExpFreeWill', 'enableFreeWill'], ['cfgExpHeartbeat', 'enableHeartbeat'], ['cfgExpResurrection', 'enableResurrection']];
 
 $('btnTestEmbed')?.addEventListener('click', async () => {
   $('embedHealthBox').textContent = tra('app.probing', '探测中…');

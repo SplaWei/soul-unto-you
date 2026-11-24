@@ -9,7 +9,6 @@ import type { QqAdapterConfig } from '../../adapters/qq-onebot/types.ts';
 import { writeJsonAtomic } from '../soul/archive.ts';
 import { readJsonBody, sendJson, type SoulHubContext } from './body-api.ts';
 import { REPO_ROOT } from './config.ts';
-import { McBotManager } from './mc-manager.ts';
 
 function probePort(port: number, host = '127.0.0.1', timeoutMs = 400): Promise<boolean> {
   if (!Number.isFinite(port) || port <= 0 || port > 65535) return Promise.resolve(false);
@@ -73,13 +72,11 @@ export class Phase2Manager {
   private qqProc: ChildProcess | null;
   private qqLogs: string[];
   private testRunning: boolean;
-  private readonly mc: McBotManager;
 
   constructor() {
     this.qqProc = null;
     this.qqLogs = [];
     this.testRunning = false;
-    this.mc = new McBotManager();
   }
 
   private pushLog(line: string): void {
@@ -198,17 +195,8 @@ export class Phase2Manager {
     }
   }
 
-  getMcState() { return this.mc.getState(); }
-
-  startMc(input: { mcPort: number; botName?: string; hubUrl: string; mcVersion?: string; apiToken?: string }) {
-    return this.mc.startMc(input);
-  }
-
-  stopMc() { return this.mc.stopMc(); }
-
   stop(): void {
     this.stopQq();
-    this.mc.stopMc();
   }
 }
 
@@ -224,20 +212,17 @@ export async function handlePhase2ApiRequest(
 
   try {
     if (req.method === 'GET' && reqPath === '/api/phase2/status') {
-      const mcPort = Number(url.searchParams.get('mcPort')) || 55916;
       const qqCfg = loadQqAdapterConfig();
       const wsPort = extractPort(qqCfg.onebot.wsUrl, 3001);
       const httpPort = extractPort(qqCfg.onebot.httpUrl, 3000);
-      const [conflictPorts, onebotWsOpen, onebotHttpOpen, mcLanOpen] = await Promise.all([
+      const [conflictPorts, onebotWsOpen, onebotHttpOpen] = await Promise.all([
         checkConflictPorts(qqCfg.guard.conflictCheckPorts),
         probePort(wsPort),
         qqCfg.onebot.httpUrl ? probePort(httpPort) : Promise.resolve(false),
-        probePort(mcPort),
       ]);
       sendJson(res, 200, {
         ok: true, hubOk: true, conflictPorts, onebotWsOpen, onebotHttpOpen, onebotWsPort: wsPort, onebotHttpPort: httpPort,
-        mcLanOpen, mcPort, qqRunning: manager.isQqRunning(), qqPid: manager.getQqPid(), qqLogs: manager.getQqLogs(),
-        mc: manager.getMcState(),
+        qqRunning: manager.isQqRunning(), qqPid: manager.getQqPid(), qqLogs: manager.getQqLogs(),
         whitelistCount: { users: qqCfg.guard.allowedUsers.length, groups: qqCfg.guard.allowedGroups.length },
         autoDream: ctx.dreamScheduler?.getStatus() ?? null,
       });
@@ -274,33 +259,11 @@ export async function handlePhase2ApiRequest(
     }
     if (req.method === 'POST' && reqPath === '/api/phase2/qq/start') { sendJson(res, 200, await manager.startQq(undefined, ctx.apiToken)); return true; }
     if (req.method === 'POST' && reqPath === '/api/phase2/qq/stop') { sendJson(res, 200, manager.stopQq()); return true; }
-    if (req.method === 'POST' && reqPath === '/api/phase2/mc/check') {
-      const body = await readJsonBody<{ mcPort?: number }>(req);
-      const mcPort = Number(body.mcPort) || 55916;
-      const hubPort = Number(url.port) || ctx.config.port || 7777;
-      const mcLanOpen = await probePort(mcPort);
-      sendJson(res, 200, {
-        ok: true, hubOk: true, openAiRoute: `http://127.0.0.1:${hubPort}/v1/bodies/game:minecraft/mindcraft-bot`,
-        mcPort, mcLanOpen,
-        message: mcLanOpen
-          ? '已检测到 Minecraft 局域网开放，可以直接连接！'
-          : '灵魂中枢已就绪，但还没检测到 MC 局域网端口（请进纯净原版存档点「对局域网开放」）。',
-      });
-      return true;
-    }
-    if (req.method === 'POST' && reqPath === '/api/phase2/mc/start') {
-      const body = await readJsonBody<{ mcPort?: number; botName?: string; mcVersion?: string }>(req);
-      const mcPort = Number(body.mcPort) || 55916;
-      const hubPort = Number(url.port) || ctx.config.port || 7777;
-      const result = await manager.startMc({ mcPort, botName: body.botName, hubUrl: `http://127.0.0.1:${hubPort}`, mcVersion: body.mcVersion, apiToken: ctx.apiToken });
-      sendJson(res, 200, result);
-      return true;
-    }
-    if (req.method === 'POST' && reqPath === '/api/phase2/mc/stop') {
-      sendJson(res, 200, manager.stopMc());
-      return true;
-    }
     if (req.method === 'POST' && reqPath === '/api/phase2/run-tests') { sendJson(res, 200, await manager.runAutomatedTests()); return true; }
+    if (req.method === 'GET' && reqPath === '/api/phase2/last-prompt') {
+      sendJson(res, 200, { ok: true, experimental: ctx.config.experimental, snapshot: ctx.lastPrompt });
+      return true;
+    }
     sendJson(res, 404, { ok: false, error: `未知 Phase 2 接口: ${reqPath}` });
     return true;
   } catch (err) {

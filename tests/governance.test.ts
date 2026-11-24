@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -13,6 +14,7 @@ function walkFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === '.git' || entry.name === 'node_modules') continue;
+    if (entry.name.endsWith('.local.json') || entry.name.endsWith('.token') || entry.name === '.DS_Store' || entry.name === 'Thumbs.db') continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...walkFiles(full));
     else out.push(full);
@@ -20,16 +22,39 @@ function walkFiles(dir: string): string[] {
   return out;
 }
 
-test('工程门禁 1：零运行时依赖与纯净根目录校验', () => {
+test('工程门禁 1：零运行时依赖、纯净根目录与主干瘦身校验', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as {
     dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+    scripts?: Record<string, string>;
   };
   assert.deepEqual(pkg.dependencies, {}, 'package.json dependencies 必须保持空对象');
+  for (const field of ['devDependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+    const val = pkg[field];
+    assert.equal(!val || Object.keys(val).length === 0, true, `package.json ${field} 必须为空或未定义`);
+  }
   assert.equal(fs.existsSync(path.join(REPO_ROOT, 'node_modules')), false, '根目录严禁生成 node_modules');
+  for (const lockFile of ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
+    assert.equal(fs.existsSync(path.join(REPO_ROOT, lockFile)), false, `根目录严禁生成 ${lockFile}`);
+  }
+  assert.equal(Object.prototype.hasOwnProperty.call(pkg.scripts || {}, 'check:mc'), false, 'package.json 不得保留 check:mc 脚本');
+  for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
+    assert.equal(cmd.includes('adapters/minecraft-mindcraft'), false, `脚本 ${name} 不得引用已归档的 adapters/minecraft-mindcraft`);
+  }
+  assert.equal(fs.existsSync(path.join(REPO_ROOT, 'adapters', 'minecraft-mindcraft')), false, 'adapters/minecraft-mindcraft 必须归档移出主干');
+  assert.equal(fs.existsSync(path.join(REPO_ROOT, 'src', 'server', 'mc-manager.ts')), false, 'src/server/mc-manager.ts 死模块必须移除');
+
+  for (const d of ['src', 'web', 'tests', 'scripts', 'adapters', 'examples', 'docs']) {
+    for (const file of walkFiles(path.join(REPO_ROOT, d))) {
+      assert.equal(/\.(py|cs)$/i.test(file), false, `活跃目录禁止残留外部语言源码桩: ${path.relative(REPO_ROOT, file)}`);
+    }
+  }
 });
 
 test('工程门禁 2：全仓核心源码/文档/测试单文件行数红线校验 (<=380, CURRENT_STATE <=60)', () => {
-  const dirs = ['src', 'web', 'tests', 'scripts', 'docs'];
+  const dirs = ['src', 'web', 'tests', 'scripts', 'docs', 'adapters'];
   const violations: string[] = [];
   for (const d of dirs) {
     for (const file of walkFiles(path.join(REPO_ROOT, d))) {
@@ -42,21 +67,50 @@ test('工程门禁 2：全仓核心源码/文档/测试单文件行数红线校�
   assert.deepEqual(violations, [], `存在超行数红线文件: ${violations.join(', ')}`);
 });
 
-test('工程门禁 3：Node 原生可擦除 TypeScript 语法与显式 .ts 导入校验', () => {
-  const importRe = /^\s*(?:import|export)[^\n]*?\sfrom\s+['"](\.[^'"]+)['"]/gm;
+test('工程门禁 3：Node 原生可擦除 TypeScript 语法、显式 .ts 导入与死模块校验', () => {
+  const importFromRe = /(?:^|\n)\s*(?:import|export)(?:\s+type)?(?:\s+\{[^}]*\}|\s+\*\s+as\s+\w+|\s+[\w$,\s*{}]+)?\s+from\s+['"](\.[^'"]+)['"]/g;
+  const sideEffectImportRe = /(?:^|\n)\s*import\s+['"](\.[^'"]+)['"]/g;
+  const dynImportRe = /\bimport\(\s*['"](\.[^'"]+)['"]\s*\)/g;
   const badTsRe = /^\s*(?:export\s+)?(?:const\s+)?(?:enum|namespace)\s+/m;
+  const ctorParamRe = /constructor\s*\([^)]*\b(?:public|private|protected|readonly)\s+[A-Za-z_$]/;
   const errors: string[] = [];
+  const importedTargets = new Set<string>();
 
-  for (const d of ['src', 'scripts', 'tests']) {
+  for (const d of ['src', 'adapters', 'scripts', 'tests']) {
     for (const file of walkFiles(path.join(REPO_ROOT, d)).filter((f) => f.endsWith('.ts'))) {
       const rel = path.relative(REPO_ROOT, file).replace(/\\/g, '/');
       const text = fs.readFileSync(file, 'utf8');
-      for (const m of text.matchAll(importRe)) {
-        if (!m[1].endsWith('.ts')) errors.push(`${rel} 相对导入缺少 .ts 后缀: ${m[1]}`);
+      for (const re of [importFromRe, sideEffectImportRe, dynImportRe]) {
+        for (const m of text.matchAll(re)) {
+          const spec = m[1];
+          if (!spec.endsWith('.ts')) errors.push(`${rel} 相对导入缺少 .ts 后缀: ${spec}`);
+          const resolved = path.resolve(path.dirname(file), spec);
+          if (!fs.existsSync(resolved)) errors.push(`${rel} 存在悬空相对导入: ${spec}`);
+          else importedTargets.add(resolved);
+        }
       }
       if (badTsRe.test(text)) {
         errors.push(`${rel} 包含不可擦除语法 (enum/namespace)`);
       }
+      if (ctorParamRe.test(text)) {
+        errors.push(`${rel} 包含不可擦除构造函数参数属性`);
+      }
+      try {
+        stripTypeScriptTypes(text, { mode: 'strip', sourceUrl: rel });
+      } catch (err) {
+        errors.push(`${rel} Node 原生可擦除 TS 解析失败: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  const cliEntries = new Set([
+    path.resolve(REPO_ROOT, 'src', 'server', 'main.ts'),
+    path.resolve(REPO_ROOT, 'src', 'server', 'mcp-stdio.ts'),
+  ]);
+  for (const file of walkFiles(path.join(REPO_ROOT, 'src')).filter((f) => f.endsWith('.ts'))) {
+    const abs = path.resolve(file);
+    if (!cliEntries.has(abs) && !importedTargets.has(abs)) {
+      errors.push(`${path.relative(REPO_ROOT, file).replace(/\\/g, '/')} 为未被任何模块引用的死文件`);
     }
   }
   assert.deepEqual(errors, [], errors.join('; '));

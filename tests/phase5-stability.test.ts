@@ -106,7 +106,7 @@ test('5.1-A LLM fallbackModels 自动降级重试（429/503/超时/400坏模型�
 });
 
 test('5.1-B 系统/游戏指令噪声过滤、躯体自声明 noisePatterns 与真实体感反馈免过滤', async () => {
-  await withTestHub({ prefix: 'soul-p51-noise-' }, async ({ hub, dir }) => {
+  await withTestHub({ prefix: 'soul-p51-noise-', experimental: { enableFreeWill: true } }, async ({ hub, dir }) => {
     for (const noise of [
       'Set own game mode to Creative Mode',
       'Teleported Player to 0, 64, 0',

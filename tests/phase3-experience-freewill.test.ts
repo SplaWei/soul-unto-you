@@ -77,6 +77,7 @@ test('3.1 亲历实践体验回路：experiences.jsonl 落盘、lived vs inherit
       query: '空手打苦力怕',
       bodyId: 'mc-1',
       bodyType: 'game:minecraft',
+      experimental: { enableFreeWill: true },
     });
     assert.ok(ctx.systemPrompt.includes('亲历实感·lived'));
     assert.ok(ctx.systemPrompt.includes('自由意志抉择准则'));
@@ -127,6 +128,7 @@ test('3.2 自由意志抉择与真实 LLM <soul_meta> 解析：不再写死服�
       query: '前面有怪，快冲上去打',
       bodyId: 'mc-1',
       bodyType: 'game:minecraft',
+      experimental: { enableFreeWill: true },
     });
 
     const router = new LlmRouter({
@@ -165,7 +167,10 @@ test('3.2 自由意志抉择与真实 LLM <soul_meta> 解析：不再写死服�
 test('3.1 + 3.2 端到端 HTTP 闭环：MC 受伤反馈落盘 -> 再次空手命令触发自主抗拒 -> 正向实践激励爽快合作', async () => {
   const archiveDir = makeTempDir('soul-p3-srv-');
   const configPath = path.join(archiveDir, 'config.json');
-  const hub = await createSoulHubServer({ archiveDir, configPath, host: '127.0.0.1', port: 0 });
+  const hub = await createSoulHubServer({
+    archiveDir, configPath, host: '127.0.0.1', port: 0,
+    experimental: { enableFreeWill: true, enableInnerLife: true, enableEmotion: true },
+  });
   const hAuth = { 'Content-Type': 'application/json', 'X-Soul-Token': hub.apiToken };
   const hGet = { 'X-Soul-Token': hub.apiToken };
 

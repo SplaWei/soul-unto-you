@@ -306,6 +306,16 @@
                 <label class="field">最少累积新经历条数 <input id="cfgDreamMinPending" type="number" min="1" step="1"></label>
               </div>
               <div id="dreamStatusBox" class="muted"></div>
+              <div id="cfgExpBox" style="margin:8px 0 10px; padding-top:8px; border-top:1px dashed var(--rule);">
+                <div class="muted" id="cfgExpTitle" style="margin-bottom:4px; font-weight:600;">实验性意识/情感模块（v0.6 默认关闭 · 按需开启）</div>
+                <div class="grid-2">
+                  <label><input id="cfgExpEmotion" type="checkbox"> 情绪惯性 (enableEmotion)</label>
+                  <label><input id="cfgExpInnerLife" type="checkbox"> 内驱力与演化 (enableInnerLife)</label>
+                  <label><input id="cfgExpFreeWill" type="checkbox"> 自由意志与痛暖 (enableFreeWill)</label>
+                  <label><input id="cfgExpHeartbeat" type="checkbox"> 静默心搏 (enableHeartbeat)</label>
+                  <label><input id="cfgExpResurrection" type="checkbox"> 碎片招魂 (enableResurrection)</label>
+                </div>
+              </div>
               <button class="btn primary" type="submit">保存配置</button>
               <span id="cfgSaveMsg" class="muted"></span>
             </form>
@@ -326,45 +336,36 @@
             <div class="status-card"><span class="status-dot dot-off" id="p2DotConflict"></span><div><strong>旧桥接防冲突</strong><div class="muted" id="p2TxtConflict">检测中…</div></div></div>
             <div class="status-card"><span class="status-dot dot-off" id="p2DotOneBot"></span><div><strong>QQ 协议端</strong><div class="muted" id="p2TxtOneBot">检测中…</div></div></div>
             <div class="status-card"><span class="status-dot dot-off" id="p2DotQq"></span><div><strong>QQ 接入开关</strong><div class="muted" id="p2TxtQq">检测中…</div></div></div>
-            <div class="status-card"><span class="status-dot dot-off" id="p2DotMc"></span><div><strong>MC 实验伴侣（已搁置）</strong><div class="muted" id="p2TxtMc">未进入游戏</div></div></div>
           </div>
           <pre class="mono-box hidden" id="p2TestOutput"></pre>
         </div>
-        <div class="grid-2">
-          <div class="card">
-            <div class="card-head"><h2>QQ OneBot v11 · 可视化启停</h2><span class="badge">默认拒绝陌生人 · 白名单放行</span></div>
-            <p class="muted">大模型 API 请在「V 开放插座」页配置；此处密码仅用于本地 OneBot v11 / NapCat 协议鉴权。</p>
-            <div class="grid-2">
-              <label class="field">私聊白名单主号 QQ（逗号分隔）<input id="p2QqUsers" type="text" placeholder="例如：你的主号 QQ"></label>
-              <label class="field">群聊白名单群号（选填）<input id="p2QqGroups" type="text" placeholder="没有测试群可留空"></label>
-            </div>
-            <label class="field">群聊唤醒词（逗号分隔）<input id="p2QqWakeWords" type="text" placeholder="例如：柳遥, Liuyao"></label>
-            <div class="grid-2">
-              <label class="field">OneBot 地址 (WS)<input id="p2QqWsUrl" type="text"></label>
-              <label class="field">本地门禁密码 (WS Token)<input id="p2QqWsToken" type="password"></label>
-            </div>
-            <div class="grid-2">
-              <label class="field">OneBot 接口 (HTTP)<input id="p2QqHttpUrl" type="text"></label>
-              <label class="field">本地门禁密码 (HTTP Token)<input id="p2QqHttpToken" type="password"></label>
-            </div>
-            <label><input id="p2QqVoice" type="checkbox"> 同时转发语音条（需开启本地 8765 声带）</label>
-            <div class="row-gap" style="margin-top:10px;"><button class="btn" id="p2BtnSaveQq" type="button">保存配置</button><button class="btn primary" id="p2BtnStartQq" type="button">启动 QQ 接入</button><button class="btn" id="p2BtnStopQq" type="button">停止 QQ 接入</button><span class="muted" id="p2QqMsg"></span></div>
-            <pre class="mono-box" id="p2QqLogs" style="max-height:140px;">暂无运行日志</pre>
+        <div class="card" id="p2PromptCard">
+          <div class="card-head">
+            <h2>DIAGNOSTICS · 最近一次真实 System Prompt（只读诊断）</h2>
+            <div class="row-gap"><button class="btn small" id="p2BtnRefreshPrompt" type="button">刷新 Prompt</button><button class="btn small" id="p2BtnCopyPrompt" type="button">复制 Prompt</button></div>
           </div>
-          <div class="card shelved-card">
-            <details class="shelved-details">
-              <summary class="shelved-summary"><span>Minecraft 实验伴侣（已搁置演示 · 点击展开）</span><span class="badge">Phase 5.3 对接成熟外部躯体</span></summary>
-              <p class="muted" style="margin:8px 0;">手写 Mineflayer 原型已停止修补；建议在「V 开放插座」直接填写 <code>/v1/bodies/game-mc/mindcraft-1</code> 接入成熟外部 MC Agent。</p>
-              <ol class="muted" style="padding-left:18px; line-height:1.7; margin:0 0 10px;">
-                <li>打开单人存档（纯净原版 1.21.1），按 <code>Esc</code> 点<strong>「对局域网开放」</strong>获取左下角 5 位端口号。</li>
-                <li>填写端口号与游戏英文名，点击蓝色按钮即可呼唤实验伴侣加入世界。</li>
-              </ol>
-              <div class="grid-2"><label class="field">MC 局域网端口号<input id="p2McPort" type="number" placeholder="例如：55916" min="1" max="65535"></label><label class="field">游戏内英文名（3-16 位）<input id="p2McBotName" type="text" value="Liuyao"></label></div>
-              <div class="row-gap" style="margin-top:6px;"><button class="btn" id="p2BtnCheckMc" type="button">检测端口</button><button class="btn primary" id="p2BtnStartMc" type="button">召唤她进入 MC</button><button class="btn" id="p2BtnStopMc" type="button">让她离开 MC</button><span class="muted" id="p2McMsg"></span></div>
-              <div class="result-banner hidden" id="p2McResult"></div>
-              <pre class="mono-box" id="p2McLogs" style="max-height:150px;">暂无 MC 伴侣运行日志</pre>
-            </details>
+          <p class="muted" id="p2PromptMeta">尚未捕获对话请求，请先在「I 双界演练台」发送 1 轮消息后再刷新查看。</p>
+          <pre class="mono-box" id="p2LastPromptBox" style="max-height:260px; white-space:pre-wrap;">暂无捕获记录</pre>
+        </div>
+        <div class="card" id="p2QqCard">
+          <div class="card-head"><h2>QQ OneBot v11 · 可视化启停</h2><span class="badge">默认拒绝陌生人 · 白名单放行</span></div>
+          <p class="muted">大模型 API 请在「V 开放插座」页配置；此处密码仅用于本地 OneBot v11 / NapCat 协议鉴权。</p>
+          <div class="grid-2">
+            <label class="field">私聊白名单主号 QQ（逗号分隔）<input id="p2QqUsers" type="text" placeholder="例如：你的主号 QQ"></label>
+            <label class="field">群聊白名单群号（选填）<input id="p2QqGroups" type="text" placeholder="没有测试群可留空"></label>
           </div>
+          <label class="field">群聊唤醒词（逗号分隔）<input id="p2QqWakeWords" type="text" placeholder="例如：柳遥, Liuyao"></label>
+          <div class="grid-2">
+            <label class="field">OneBot 地址 (WS)<input id="p2QqWsUrl" type="text"></label>
+            <label class="field">本地门禁密码 (WS Token)<input id="p2QqWsToken" type="password"></label>
+          </div>
+          <div class="grid-2">
+            <label class="field">OneBot 接口 (HTTP)<input id="p2QqHttpUrl" type="text"></label>
+            <label class="field">本地门禁密码 (HTTP Token)<input id="p2QqHttpToken" type="password"></label>
+          </div>
+          <label><input id="p2QqVoice" type="checkbox"> 同时转发语音条（需开启本地 8765 声带）</label>
+          <div class="row-gap" style="margin-top:10px;"><button class="btn" id="p2BtnSaveQq" type="button">保存配置</button><button class="btn primary" id="p2BtnStartQq" type="button">启动 QQ 接入</button><button class="btn" id="p2BtnStopQq" type="button">停止 QQ 接入</button><span class="muted" id="p2QqMsg"></span></div>
+          <pre class="mono-box" id="p2QqLogs" style="max-height:140px;">暂无运行日志</pre>
         </div>
       </section>
     </main>

@@ -35,8 +35,7 @@ function ensurePolling() {
 }
 
 async function refreshPhase2Status() {
-  const mcPort = Number($p2('p2McPort')?.value) || 55916;
-  const st = await p2Api(`/api/phase2/status?mcPort=${encodeURIComponent(mcPort)}`);
+  const st = await p2Api('/api/phase2/status');
   if (!st.ok) {
     setLight('p2DotHub', 'p2TxtHub', 'off', tr2('p2.disconnected', '未连接'));
     return;
@@ -69,41 +68,55 @@ async function refreshPhase2Status() {
     setLight('p2DotQq', 'p2TxtQq', 'off', tr2('p2.qqStopped', '未启动'));
   }
 
-  const mc = st.mc || {};
-  if (mc.running) {
-    const name = mc.botName || 'Liuyao';
-    setLight('p2DotMc', 'p2TxtMc', 'ok', tr2('p2.mcInGame', `已在游戏内 (${name} :${mc.port})`, { name, port: mc.port }));
-  } else if (mc.installing) {
-    setLight('p2DotMc', 'p2TxtMc', 'warn', tr2('p2.mcInstalling', '正在自动安装组件…'));
-  } else if (st.mcLanOpen) {
-    setLight('p2DotMc', 'p2TxtMc', 'warn', tr2('p2.mcLanOpen', `局域网 ${st.mcPort} 已开，待召唤`, { port: st.mcPort }));
-  } else {
-    setLight('p2DotMc', 'p2TxtMc', 'off', tr2('p2.mcOff', '未进入游戏'));
-  }
-
   const startBtn = $p2('p2BtnStartQq');
   const stopBtn = $p2('p2BtnStopQq');
   if (startBtn) startBtn.disabled = Boolean(st.qqRunning);
   if (stopBtn) stopBtn.disabled = !st.qqRunning;
-
-  const mcStartBtn = $p2('p2BtnStartMc');
-  const mcStopBtn = $p2('p2BtnStopMc');
-  if (mcStartBtn) mcStartBtn.disabled = Boolean(mc.running || mc.installing);
-  if (mcStopBtn) mcStopBtn.disabled = !mc.running;
 
   const logBox = $p2('p2QqLogs');
   if (logBox) {
     logBox.textContent = (st.qqLogs && st.qqLogs.length) ? st.qqLogs.join('\n') : tr2('#p2QqLogs_empty', window.SoulI18n?.isEn() ? 'No adapter logs yet' : '暂无运行日志');
     logBox.scrollTop = logBox.scrollHeight;
   }
-  const mcLogBox = $p2('p2McLogs');
-  if (mcLogBox) {
-    mcLogBox.textContent = (mc.logs && mc.logs.length) ? mc.logs.join('\n') : (window.SoulI18n?.isEn() ? 'No MC bot logs yet' : '暂无 MC 伴侣运行日志');
-    mcLogBox.scrollTop = mcLogBox.scrollHeight;
-  }
 
-  if (st.qqRunning || mc.running || mc.installing) {
+  if (st.qqRunning) {
     ensurePolling();
+  }
+}
+
+async function refreshLastPrompt() {
+  const res = await p2Api('/api/phase2/last-prompt');
+  const metaEl = $p2('p2PromptMeta');
+  const box = $p2('p2LastPromptBox');
+  if (!metaEl || !box) return;
+  if (!res.ok) {
+    metaEl.textContent = tr2('p2.promptLoadFail', `获取 Prompt 失败：${res.error}`, { err: res.error });
+    return;
+  }
+  const exp = res.experimental || {};
+  const enabledFlags = Object.entries(exp).filter(([, v]) => Boolean(v)).map(([k]) => k.replace(/^enable/, ''));
+  const expLabel = enabledFlags.length ? enabledFlags.join(', ') : tr2('p2.expNone', '全关（纯净默认模式）');
+  const snap = res.snapshot;
+  if (!snap) {
+    metaEl.textContent = tr2('p2.promptWait', `实验开关: ${expLabel} ｜ 尚未捕获对话，请先在「I 双界演练台」发 1 轮消息。`, { exp: expLabel });
+    box.textContent = tr2('p2.promptEmpty', '暂无捕获记录');
+    return;
+  }
+  metaEl.textContent = tr2('p2.promptMeta',
+    `${snap.capturedAt} · [${snap.source}] ${snap.bodyType} (${snap.bodyId}) · 模型: ${snap.driver}/${snap.model} · ~${snap.estimatedTokens} tokens (${snap.charCount} 字) · 实验开关: ${expLabel}`,
+    { at: snap.capturedAt, src: snap.source, bodyType: snap.bodyType, bodyId: snap.bodyId, driver: snap.driver, model: snap.model, tok: snap.estimatedTokens, chars: snap.charCount, exp: expLabel },
+  );
+  box.textContent = snap.systemPrompt || '';
+}
+
+async function copyLastPrompt() {
+  const txt = $p2('p2LastPromptBox')?.textContent || '';
+  if (!txt || txt === tr2('p2.promptEmpty', '暂无捕获记录')) return;
+  await navigator.clipboard?.writeText(txt);
+  const btn = $p2('p2BtnCopyPrompt');
+  if (btn) {
+    btn.textContent = tr2('app.copied', '已复制 ✓');
+    setTimeout(() => { btn.textContent = tr2('p2.copyPrompt', '复制 Prompt'); }, 1500);
   }
 }
 
@@ -155,43 +168,6 @@ async function stopQq() {
   await refreshPhase2Status();
 }
 
-async function checkMc() {
-  const mcPort = Number($p2('p2McPort').value) || 55916;
-  const res = await p2Api('/api/phase2/mc/check', 'POST', { mcPort });
-  const box = $p2('p2McResult');
-  box.classList.remove('hidden');
-  box.textContent = res.ok
-    ? tr2('p2.mcCheckOk', `${res.message}\n你可以直接点上面的「召唤她进入 MC」！`, { msg: res.message })
-    : tr2('p2.checkFail', `检测失败：${res.error}`, { err: res.error });
-}
-
-async function startMc() {
-  const btn = $p2('p2BtnStartMc');
-  const mcPort = Number($p2('p2McPort').value) || 55916;
-  const botName = ($p2('p2McBotName')?.value || 'Liuyao').trim();
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = tr2('p2.mcSummoning', '正在召唤中…');
-  }
-  $p2('p2McMsg').textContent = tr2('p2.mcConnecting', '正在连接 Minecraft 世界（首次会自动准备组件）…');
-  ensurePolling();
-  try {
-    const res = await p2Api('/api/phase2/mc/start', 'POST', { mcPort, botName });
-    $p2('p2McMsg').textContent = res.ok
-      ? tr2('p2.mcSummoned', `已召唤「${res.botName}」进入 :${res.port} ✓（请看下方日志是否已进世界）`, { name: res.botName, port: res.port })
-      : tr2('p2.summonFail', `召唤失败：${res.error}`, { err: res.error });
-    await refreshPhase2Status();
-  } finally {
-    if (btn) btn.textContent = tr2('p2.mcSummonBtn', '召唤她进入 MC');
-  }
-}
-
-async function stopMc() {
-  const res = await p2Api('/api/phase2/mc/stop', 'POST', {});
-  $p2('p2McMsg').textContent = res.ok ? tr2('p2.mcStopped', '已让她退出 MC 游戏世界') : tr2('p2.opFail', `操作失败：${res.error}`, { err: res.error });
-  await refreshPhase2Status();
-}
-
 async function runTests() {
   const btn = $p2('p2BtnRunTests');
   const box = $p2('p2TestOutput');
@@ -218,18 +194,17 @@ async function runTests() {
 
 window.SoulPhase2 = {
   init: async () => {
-    $p2('p2BtnRefresh')?.addEventListener('click', () => void refreshPhase2Status());
+    $p2('p2BtnRefresh')?.addEventListener('click', () => void Promise.all([refreshPhase2Status(), refreshLastPrompt()]));
     $p2('p2BtnRunTests')?.addEventListener('click', () => void runTests());
+    $p2('p2BtnRefreshPrompt')?.addEventListener('click', () => void refreshLastPrompt());
+    $p2('p2BtnCopyPrompt')?.addEventListener('click', () => void copyLastPrompt());
     $p2('p2BtnSaveQq')?.addEventListener('click', () => void saveQqConfig());
     $p2('p2BtnStartQq')?.addEventListener('click', () => void startQq());
     $p2('p2BtnStopQq')?.addEventListener('click', () => void stopQq());
-    $p2('p2BtnCheckMc')?.addEventListener('click', () => void checkMc());
-    $p2('p2BtnStartMc')?.addEventListener('click', () => void startMc());
-    $p2('p2BtnStopMc')?.addEventListener('click', () => void stopMc());
-    window.SoulI18n?.onChange(() => { void refreshPhase2Status(); });
-    await Promise.all([loadQqConfig(), refreshPhase2Status()]);
+    window.SoulI18n?.onChange(() => { void refreshPhase2Status(); void refreshLastPrompt(); });
+    await Promise.all([loadQqConfig(), refreshPhase2Status(), refreshLastPrompt()]);
   },
   refresh: async () => {
-    await Promise.all([loadQqConfig(), refreshPhase2Status()]);
+    await Promise.all([loadQqConfig(), refreshPhase2Status(), refreshLastPrompt()]);
   },
 };

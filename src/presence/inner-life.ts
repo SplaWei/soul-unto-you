@@ -17,6 +17,7 @@ import {
 import { evolveSelfFromDream, listBeliefs, listSelfEvolution, renderEvolvingSelfMarkdown } from '../soul/living-self.ts';
 import type {
   EpistemicAttitude,
+  ExperimentalConfig,
   ExperienceOrigin,
   HeartbeatActionKind,
   InnerDiaryEntry,
@@ -226,7 +227,7 @@ export function applyExperienceToInnerLife(
 }
 
 export interface InnerLifeHubLike {
-  config: { archiveDir: string };
+  config: { archiveDir: string; experimental?: ExperimentalConfig };
   presence: {
     withSoulLock: <T>(task: () => Promise<T>) => Promise<T>;
     getEpoch?: () => number;
@@ -246,12 +247,17 @@ export async function handleInnerLifeHttpRoute(
   sendJson: (res: ServerResponse, status: number, body: unknown) => void,
   readJsonBody: <T = Record<string, unknown>>(req: IncomingMessage) => Promise<T>,
 ): Promise<boolean> {
+  const blockIfOff = (key: keyof ExperimentalConfig, label: string): boolean => {
+    if (hub.config.experimental?.[key] !== false) return false;
+    sendJson(res, 403, { ok: false, error: `实验性${label}模块未启用（请在设置中开启 ${key}）`, experimentalDisabled: key });
+    return true;
+  };
   if (req.method === 'GET' && pathname === '/api/inner-life') {
     const dir = hub.config.archiveDir;
     const p = resolveArchivePaths(dir);
     const drives = loadDrives(dir);
     sendJson(res, 200, {
-      ok: true, drives, emotion: loadEmotionState(dir), desires: listDesires(dir), diary: listDiary(dir, 30),
+      ok: true, experimental: hub.config.experimental, drives, emotion: loadEmotionState(dir), desires: listDesires(dir), diary: listDiary(dir, 30),
       epistemicLabel: EPISTEMIC_LABELS[drives.epistemicTendency],
       evolvingSelfMarkdown: fs.existsSync(p.evolvingSelf) ? fs.readFileSync(p.evolvingSelf, 'utf8') : renderEvolvingSelfMarkdown(dir),
       beliefs: listBeliefs(dir), selfEvolution: listSelfEvolution(dir),
@@ -263,6 +269,7 @@ export async function handleInnerLifeHttpRoute(
     return true;
   }
   if (req.method === 'POST' && pathname === '/api/inner-life/emotion') {
+    if (blockIfOff('enableEmotion', '情绪惯性')) return true;
     const body = await readJsonBody<{
       reset?: boolean; valence?: number; arousal?: number; safety?: number;
       intensity?: number; rawMood?: string; note?: string; nowMs?: number;
@@ -282,6 +289,7 @@ export async function handleInnerLifeHttpRoute(
     return true;
   }
   if (req.method === 'POST' && pathname === '/api/inner-life/evolve') {
+    if (blockIfOff('enableInnerLife', '内在生命与自我演化')) return true;
     const dir = hub.config.archiveDir;
     const note = await evolveSelfFromDream(
       dir,
@@ -292,6 +300,7 @@ export async function handleInnerLifeHttpRoute(
     return true;
   }
   if (req.method === 'POST' && pathname === '/api/inner-life/drives') {
+    if (blockIfOff('enableInnerLife', '内在生命与驱力')) return true;
     const body = await readJsonBody<Partial<SoulDrives>>(req);
     const drives = await hub.presence.withSoulLock(async () => updateDrives(hub.config.archiveDir, body));
     hub.ws?.broadcastJson({ type: 'inner.drives', drives });
@@ -299,6 +308,7 @@ export async function handleInnerLifeHttpRoute(
     return true;
   }
   if (req.method === 'POST' && pathname === '/api/inner-life/desire') {
+    if (blockIfOff('enableInnerLife', '内在生命与微心愿')) return true;
     const body = await readJsonBody<{ title?: string; detail?: string; urgency?: number }>(req);
     if (!String(body.title || '').trim()) {
       sendJson(res, 400, { ok: false, error: '微心愿 title 不能为空' });
@@ -311,6 +321,7 @@ export async function handleInnerLifeHttpRoute(
     return true;
   }
   if (req.method === 'POST' && pathname === '/api/inner-life/desire/fulfill') {
+    if (blockIfOff('enableInnerLife', '内在生命与微心愿')) return true;
     const body = await readJsonBody<{ id?: string }>(req);
     const id = String(body.id || '').trim();
     if (!id) {
@@ -322,6 +333,7 @@ export async function handleInnerLifeHttpRoute(
     return true;
   }
   if (req.method === 'POST' && pathname === '/api/inner-life/heartbeat') {
+    if (blockIfOff('enableHeartbeat', '静默心搏')) return true;
     const body = await readJsonBody<{ forceAction?: HeartbeatActionKind; isSilentIdle?: boolean }>(req);
     const out = await runSoulHeartbeat(hub.config.archiveDir, {
       forceAction: body.forceAction,

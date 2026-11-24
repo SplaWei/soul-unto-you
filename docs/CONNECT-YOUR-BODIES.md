@@ -32,7 +32,7 @@
 | **已在本机 / 自动化实测** | 回归测试与压测基线 | `node --test tests/*.test.ts` **全绿**、万级 JSONL 扫盘基线与 30 天虚拟时钟漂移模拟已实测 |
 | **开放协议已就绪 · 待社区实测** | QQ OneBot v11 适配端 | 离网全链路单测已通过；接真实 NapCat / Lagrange QQ 需由用户按本机协议端环境实测验证 |
 | **开放协议已就绪 · 待社区实测** | 零代码 OpenAI 直连躯体 | 桌宠（Open-LLM-VTuber / AIRI）、MC Mindcraft、刷 B 站陪看、SillyTavern、MCP 客户端通过 `/v1/bodies/...` 与 `/mcp` 直接接入，欢迎社区提交实测反馈 |
-| **暂搁置 / 后续路线** | Phase 5.3 ~ Phase 7 扩展 | 手写 Mineflayer 原型 (`adapters/minecraft-mindcraft/`) **已搁置**；双向躯体协议 v2、RimWorld 1.7 Harmony Mod、声带深联动与实体硬件共建留待 `v0.5` 后陆续推进 |
+| **暂搁置 / 后续路线** | Phase 5.3 ~ Phase 7 扩展 | 手写 Mineflayer 原型（已归档至 `archive/minecraft-mindcraft/`）**已搁置**；双向躯体协议 v2、RimWorld 1.7 Harmony Mod、声带深联动与实体硬件共建留待 `v0.5` 后陆续推进 |
 
 ---
 
@@ -58,7 +58,7 @@
 - **跨端验收法**：在桌宠里跟她约定“今晚九点提醒我喝水”，随后打开网页 **`I 双界演练台`** 或 **`III 万年典籍`**，确认能看到同一条未完约定与 `[desktop-pet]` 来源足迹。
 
 ### 3. Minecraft 成熟外部 Agent（如 Mindcraft）
-> 原手写 Mineflayer 实验原型（`adapters/minecraft-mindcraft/`）已停止修补。**推荐直接对接成熟外部 MC Agent**，把灵魂大脑挂上去：
+> 原手写 Mineflayer 实验原型已归档移出主干（见 `archive/minecraft-mindcraft/`）。**推荐直接对接成熟外部 MC Agent**，把灵魂大脑挂上去：
 - **Base URL / Endpoint**：`http://127.0.0.1:7777/v1/bodies/game-mc/mindcraft-1`
 - **API Key**：`<粘贴 .soul-hub.token 中的整串文本>`
 - **Model**：`soul-unto-you`
@@ -73,6 +73,8 @@
 - **MCP 客户端（Claude Desktop / Cursor 等）**：
   - **Stdio 本地直连（免令牌）**：命令填 `node`，参数填 `src/server/mcp-stdio.ts`（工作目录设为本仓库根目录）。
   - **HTTP MCP 端点**：地址填 `http://127.0.0.1:7777/mcp`，请求头附带 `X-Soul-Token: <你的 .soul-hub.token>` 与 `Content-Type: application/json`。
+- **自定义躯体代码参考（Node.js / Python / RimWorld C#）**：
+  - 零依赖 Node.js 可运行样板见 [node-body-starter.mjs](../examples/body-kits/node-body-starter.mjs)；Python 与 RimWorld C# 蓝图代码块见 [body-starter-kits.md](./examples/body-starter-kits.md)。
 
 ---
 

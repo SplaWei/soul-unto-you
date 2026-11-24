@@ -4,8 +4,19 @@ import type { LlmEndpointConfig, LlmRouterConfig } from '../llm/router.ts';
 import type { DreamSchedulerConfig } from '../memory/dream-scheduler.ts';
 import type { EmbeddingConfig, RetrieverConfig } from '../memory/search.ts';
 import { readJsonSafe, writeJsonAtomic } from '../soul/archive.ts';
+import type { ExperimentalConfig } from '../soul/types.ts';
 import type { VoiceConfig } from '../voice/client.ts';
 import { isLoopbackBindHost } from './security.ts';
+
+export type { ExperimentalConfig };
+
+export const DEFAULT_EXPERIMENTAL_CONFIG: ExperimentalConfig = {
+  enableEmotion: false,
+  enableInnerLife: false,
+  enableFreeWill: false,
+  enableHeartbeat: false,
+  enableResurrection: false,
+};
 
 export interface HubConfig {
   host: string;
@@ -16,6 +27,7 @@ export interface HubConfig {
   retriever: RetrieverConfig;
   voice: VoiceConfig;
   dream: DreamSchedulerConfig;
+  experimental: ExperimentalConfig;
 }
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +89,17 @@ export function defaultHubConfig(): HubConfig {
       minPendingEntries: 4,
       checkIntervalSec: 60,
     },
+    experimental: { ...DEFAULT_EXPERIMENTAL_CONFIG },
+  };
+}
+
+function normalizeExperimental(patch: Partial<ExperimentalConfig> | undefined, base: ExperimentalConfig): ExperimentalConfig {
+  return {
+    enableEmotion: patch?.enableEmotion !== undefined ? Boolean(patch.enableEmotion) : base.enableEmotion,
+    enableInnerLife: patch?.enableInnerLife !== undefined ? Boolean(patch.enableInnerLife) : base.enableInnerLife,
+    enableFreeWill: patch?.enableFreeWill !== undefined ? Boolean(patch.enableFreeWill) : base.enableFreeWill,
+    enableHeartbeat: patch?.enableHeartbeat !== undefined ? Boolean(patch.enableHeartbeat) : base.enableHeartbeat,
+    enableResurrection: patch?.enableResurrection !== undefined ? Boolean(patch.enableResurrection) : base.enableResurrection,
   };
 }
 
@@ -100,6 +123,7 @@ export function loadHubConfig(configPath = defaultConfigPath()): HubConfig {
     retriever: { ...base.retriever, ...(saved.retriever || {}) },
     voice: { ...base.voice, ...(saved.voice || {}) },
     dream: { ...base.dream, ...(saved.dream || {}) },
+    experimental: normalizeExperimental(saved.experimental, base.experimental),
   };
 }
 
@@ -143,6 +167,7 @@ export function sanitizeConfigForUi(cfg: HubConfig): Record<string, unknown> {
       apiKey: maskKey(cfg.voice.apiKey),
     },
     dream: { ...cfg.dream },
+    experimental: { ...cfg.experimental },
   };
 }
 
@@ -225,6 +250,7 @@ export function saveHubConfig(
         ? Number(patch.dream.checkIntervalSec)
         : current.dream.checkIntervalSec,
     },
+    experimental: normalizeExperimental(patch.experimental, current.experimental),
   };
   writeJsonAtomic(configPath, next);
   return next;

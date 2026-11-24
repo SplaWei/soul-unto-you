@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createSoulHubServer } from '../../src/server/main.ts';
 import { resolveArchivePaths } from '../../src/soul/archive.ts';
 import { FIRST_AWAKENING_HEADER, SEED_MAX_BYTES } from '../../src/soul/covenant.ts';
-import type { JournalEntry, LivedExperience, MemoryEpisode, SoulIdentity, SoulMeta } from '../../src/soul/types.ts';
+import type { ExperimentalConfig, JournalEntry, LivedExperience, MemoryEpisode, SoulIdentity, SoulMeta } from '../../src/soul/types.ts';
 
 /** 在系统临时目录创建隔离沙盒并在结束后自动彻底清理，严禁触碰主档案。 */
 export async function withSandboxArchive<T>(
@@ -125,7 +125,7 @@ export function authHeaders(token: string, extra: Record<string, string> = {}): 
 
 /** 启动沙盒中枢并提供 cold-restart 能力，确保测试结束自动释放端口与临时目录。 */
 export async function withTestHub<T>(
-  options: { prefix?: string; llmBaseUrl?: string; embeddingBaseUrl?: string; embeddingModel?: string },
+  options: { prefix?: string; llmBaseUrl?: string; embeddingBaseUrl?: string; embeddingModel?: string; experimental?: Partial<ExperimentalConfig> },
   fn: (ctx: {
     hub: TestHubHandle;
     dir: string;
@@ -134,7 +134,7 @@ export async function withTestHub<T>(
   }) => Promise<T>,
 ): Promise<T> {
   return withSandboxArchive(options.prefix || 'soul-hub-test-', async ({ dir, configPath }) => {
-    let currentHub = await createSoulHubServer({ archiveDir: dir, configPath, host: '127.0.0.1', port: 0 });
+    let currentHub = await createSoulHubServer({ archiveDir: dir, configPath, host: '127.0.0.1', port: 0, experimental: options.experimental });
     try {
       if (options.llmBaseUrl || options.embeddingBaseUrl) {
         const patch: Record<string, unknown> = {};
@@ -151,7 +151,7 @@ export async function withTestHub<T>(
       }
       const restartHub = async () => {
         await currentHub.close();
-        currentHub = await createSoulHubServer({ archiveDir: dir, configPath, host: '127.0.0.1', port: 0 });
+        currentHub = await createSoulHubServer({ archiveDir: dir, configPath, host: '127.0.0.1', port: 0, experimental: options.experimental });
         return currentHub;
       };
       return await fn({ hub: currentHub, dir, configPath, restartHub });

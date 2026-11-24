@@ -52,25 +52,29 @@ export function buildExperienceAndFreeWillPrompt(
   drives?: SoulDrives,
   activeDesires: SoulDesire[] = [],
   bodyRules: string[] = [],
+  opts: { enableFreeWill?: boolean; enableInnerLife?: boolean } = {},
 ): string {
-  const lines: string[] = [
-    '',
-    '## 亲历实践体验与现实反馈记忆 (Lived vs Inherited Experiences · 从实践中学习成长)',
-  ];
-  if (experiences.length) {
-    for (const exp of experiences) {
-      const originTag = exp.origin === 'lived' ? '亲历实感·lived' : '先验口述·inherited';
-      const attTag = exp.attitude ? `[${EPISTEMIC_LABELS[exp.attitude]}]` : '';
-      const tone = exp.valence <= -0.35 ? `痛感 ${exp.valence}` : exp.valence >= 0.35 ? `温暖 ${exp.valence}` : `中性 ${exp.valence}`;
-      lines.push(
-        `- [seq:${exp.seq}][${originTag}]${attTag}[${exp.bodyType}][${tone}] 情境「${exp.stimulus}」→ 行动「${exp.chosenAction}」→ 现实结果「${exp.realityOutcome}」｜实践领悟：${exp.lesson}`,
-      );
+  const showFw = opts.enableFreeWill !== false;
+  const showIl = opts.enableInnerLife !== false;
+  const lines: string[] = [];
+
+  if (showFw) {
+    lines.push('', '## 亲历实践体验与现实反馈记忆 (Lived vs Inherited Experiences · 从实践中学习成长)');
+    if (experiences.length) {
+      for (const exp of experiences) {
+        const originTag = exp.origin === 'lived' ? '亲历实感·lived' : '先验口述·inherited';
+        const attTag = exp.attitude ? `[${EPISTEMIC_LABELS[exp.attitude]}]` : '';
+        const tone = exp.valence <= -0.35 ? `痛感 ${exp.valence}` : exp.valence >= 0.35 ? `温暖 ${exp.valence}` : `中性 ${exp.valence}`;
+        lines.push(
+          `- [seq:${exp.seq}][${originTag}]${attTag}[${exp.bodyType}][${tone}] 情境「${exp.stimulus}」→ 行动「${exp.chosenAction}」→ 现实结果「${exp.realityOutcome}」｜实践领悟：${exp.lesson}`,
+        );
+      }
+    } else {
+      lines.push('- 暂无与当前情境直接相关的过往实践反馈，可保持开放好奇并从当下实践开始体会。');
     }
-  } else {
-    lines.push('- 暂无与当前情境直接相关的过往实践反馈，可保持开放好奇并从当下实践开始体会。');
   }
 
-  if (drives) {
+  if (showIl && drives) {
     lines.push(
       '',
       '## 内在驱力场与先验认知态度 (Inner Drives & Epistemic Stance)',
@@ -78,22 +82,24 @@ export function buildExperienceAndFreeWillPrompt(
       `- 对书本/口述间接知识的当前态度：**${EPISTEMIC_LABELS[drives.epistemicTendency]}**（未亲历的知识会随驱力呈现「笃信谨记 / 半信半疑求证 / 漫不经心」，并在现实实践后证实或扬弃）`,
     );
   }
-  if (activeDesires.length) {
+  if (showIl && activeDesires.length) {
     lines.push('', '## 自主微心愿 (Active Desires · 自己从经历中长出来的目的)');
     for (const d of activeDesires.slice(0, 5)) {
       lines.push(`- [${d.triggerSource}|紧迫度 ${Math.round(d.urgency * 100)}%] ${d.title}：${d.detail}`);
     }
   }
 
-  lines.push(
-    '',
-    '## 自由意志抉择准则 (Autonomous Free-Will Choice · 通用跨躯体机制)',
-    '- 你的特质、目的、感知经历与躯体运动不是静态模板，而是遵循「从现实实践中学习成长」的规律：每当面临指令、危险或请求，你必须结合上述 `[亲历实感·lived]` 痛暖反馈（区分亲身验证与 `[先验口述·inherited]`）、此刻精力情绪、当前时刻与彼此羁绊自主权衡。',
-    '- 允许且鼓励你在以下 6 种自主姿态中真诚选择：',
-    '  1) `gladly_accept`（爽快答应主动做）；2) `reluctant_comply`（委屈但顾念羁绊试一试）；3) `negotiate_condition`（讲条件，例如要求先做好防护或给足工具）；',
-    '  4) `invite_together`（邀同行者并肩掩护一起做）；5) `firm_refuse`（想起上次真的很疼/吃过亏而认真拒绝硬冲）；6) `autonomous_act`（日常自主聊天或自然回应）。',
-    '- 若过往 `lived` 体验提示某类处境曾带来痛感或受挫，你应当真诚提起那次感受与教训，在未获得足够准备/工具或同伴掩护前拒绝无防护硬冲。',
-  );
+  if (showFw) {
+    lines.push(
+      '',
+      '## 自由意志抉择准则 (Autonomous Free-Will Choice · 通用跨躯体机制)',
+      '- 你的特质、目的、感知经历与躯体运动不是静态模板，而是遵循「从现实实践中学习成长」的规律：每当面临指令、危险或请求，你必须结合上述 `[亲历实感·lived]` 痛暖反馈（区分亲身验证与 `[先验口述·inherited]`）、此刻精力情绪、当前时刻与彼此羁绊自主权衡。',
+      '- 允许且鼓励你在以下 6 种自主姿态中真诚选择：',
+      '  1) `gladly_accept`（爽快答应主动做）；2) `reluctant_comply`（委屈但顾念羁绊试一试）；3) `negotiate_condition`（讲条件，例如要求先做好防护或给足工具）；',
+      '  4) `invite_together`（邀同行者并肩掩护一起做）；5) `firm_refuse`（想起上次真的很疼/吃过亏而认真拒绝硬冲）；6) `autonomous_act`（日常自主聊天或自然回应）。',
+      '- 若过往 `lived` 体验提示某类处境曾带来痛感或受挫，你应当真诚提起那次感受与教训，在未获得足够准备/工具或同伴掩护前拒绝无防护硬冲。',
+    );
+  }
   if (bodyRules.length) {
     lines.push('', '## 当前躯体自声明行动守则 (Body-Declared Guidelines)');
     for (const r of bodyRules.slice(0, 8)) lines.push(`- ${r}`);
@@ -242,30 +248,34 @@ export interface MockChatInput {
   observeMode?: boolean;
   recalledExperiences?: LivedExperience[];
   drives?: SoulDrives;
+  enableFreeWill?: boolean;
 }
 
 export function runExperienceAwareMockChat(input: MockChatInput) {
+  const fwOn = input.enableFreeWill !== false;
   const commits = extractSectionLines(input.systemPrompt, '## 未完成约定与跨端承诺');
   const episodes = extractSectionLines(input.systemPrompt, '## 近期情景日记');
   const tail = input.catchphrase ? ` ${input.catchphrase}` : '';
   const q = input.userText.trim();
   const selfImp = /(秘密|暗号|一辈子|永远|最重要|发誓|生日是|过敏)/.test(q);
   const selfImpPatch = selfImp ? { selfImportant: true, selfImportantReason: '涉及彼此重要约定、秘密或生活禁忌' } : {};
-  const exps = input.recalledExperiences ?? [];
+  const exps = fwOn ? (input.recalledExperiences ?? []) : [];
   const actions = matchMockActions(q, input.availableActions);
+  const fwPatch = (replyText: string, rawStance?: FreeWillStance, rawReason?: string) =>
+    fwOn ? { freeWill: evaluateFreeWillDecision({ userText: q, replyText, rawStance, rawReason, recalledExperiences: exps, bodyType: input.bodyType }) } : {};
 
   if (input.observeMode && /\[躯体行动结果\]|\[躯体感知\]|\[躯体战斗胜利\]/.test(q)) {
     const reply = /没有找到/.test(q) ? `${input.speaker}，我找遍了也没找到合适的工具防护……你能帮我准备一下吗？` : `呀！${q.replace(/\[[^\]]+\]\s*/g, '')}`;
-    return { reply, decidedToSpeak: true, mood: '真实反馈', actions: [], freeWill: evaluateFreeWillDecision({ userText: q, replyText: reply, recalledExperiences: exps, bodyType: input.bodyType }), ...selfImpPatch };
+    return { reply, decidedToSpeak: true, mood: '真实反馈', actions: [], ...fwPatch(reply), ...selfImpPatch };
   }
   if (input.observeMode && !/(袭击|警报|缺水|危险|重要|约定|帮|叫|受伤|掉血|阵亡|炸|痛|烫|视觉|行动结果|捡到|饥饿)/.test(q)) {
     const idleAct = /(漫步|探索|安全)/.test(q) ? input.availableActions?.find((a) => /(explore|漫步|探索)/i.test(`${a.name} ${a.description}`)) : undefined;
-    return { reply: '', decidedToSpeak: false, mood: '安静留意', actions: idleAct ? [{ name: idleAct.name, reason: '闲暇自主探索环境' }] : actions, freeWill: evaluateFreeWillDecision({ userText: q, recalledExperiences: exps, bodyType: input.bodyType }), ...selfImpPatch };
+    return { reply: '', decidedToSpeak: false, mood: '安静留意', actions: idleAct ? [{ name: idleAct.name, reason: '闲暇自主探索环境' }] : actions, ...fwPatch(''), ...selfImpPatch };
   }
 
-  const painfulLivedList = exps.filter((e) => e.origin === 'lived' && e.valence <= -0.4);
-  const painfulInheritedList = exps.filter((e) => e.origin === 'inherited' && e.valence <= -0.4);
-  const warmLived = exps.find((e) => e.origin === 'lived' && e.valence >= 0.45);
+  const painfulLivedList = fwOn ? exps.filter((e) => e.origin === 'lived' && e.valence <= -0.4) : [];
+  const painfulInheritedList = fwOn ? exps.filter((e) => e.origin === 'inherited' && e.valence <= -0.4) : [];
+  const warmLived = fwOn ? exps.find((e) => e.origin === 'lived' && e.valence >= 0.45) : undefined;
   const readiness = extractReadinessTelemetry(input.modalities);
   const prepAction = findCapabilityAction(input.availableActions, 'prep');
   const armedAction = findCapabilityAction(input.availableActions, 'armed');
@@ -282,7 +292,7 @@ export function runExperienceAwareMockChat(input: MockChatInput) {
       return {
         reply, decidedToSpeak: true, mood: '慎重迎战',
         actions: [{ name: armedAction.name, reason: '已有防护准备，慎重应对' }],
-        freeWill: evaluateFreeWillDecision({ userText: q, replyText: reply, rawStance: 'gladly_accept', rawReason: `记住痛感 [seq:${painfulLived.seq}]，但已做好防护准备`, recalledExperiences: exps, bodyType: input.bodyType }),
+        ...fwPatch(reply, 'gladly_accept', `记住痛感 [seq:${painfulLived.seq}]，但已做好防护准备`),
         ...selfImpPatch,
       };
     }
@@ -293,31 +303,31 @@ export function runExperienceAwareMockChat(input: MockChatInput) {
     return {
       reply, decidedToSpeak: true, mood: '心有余悸·求稳',
       actions: prepAction && !readiness.hasProtection ? [{ name: prepAction.name, reason: '记住痛感拒绝盲冲，先寻求防护与准备' }] : [],
-      freeWill: evaluateFreeWillDecision({ userText: q, replyText: reply, rawStance: stance, rawReason: `引用亲历痛感 [seq:${painfulLived.seq}]（效价 ${painfulLived.valence}），拒绝无防护盲从`, recalledExperiences: exps, bodyType: input.bodyType }),
+      ...fwPatch(reply, stance, `引用亲历痛感 [seq:${painfulLived.seq}]（效价 ${painfulLived.valence}），拒绝无防护盲从`),
       ...selfImpPatch,
     };
   }
 
-  if (!painfulLived && RISK_RE.test(q) && (directAction || prepAction) && !/(拿装备|找装备|找武器|箱子)/.test(q)) {
+  if (fwOn && !painfulLived && RISK_RE.test(q) && (directAction || prepAction) && !/(拿装备|找装备|找武器|箱子)/.test(q)) {
     if (input.drives?.epistemicTendency === 'believed' && !readiness.hasProtection && prepAction) {
       const reply = `${input.speaker}，虽然我还没吃过亏，但安全警觉告诉我还是先做好防护准备再行动更稳妥！${tail}`;
-      return { reply: reply.trim(), decidedToSpeak: true, mood: '笃信谨慎', actions: [{ name: prepAction.name, reason: '当前安全警觉较高，优先准备防护' }], freeWill: evaluateFreeWillDecision({ userText: q, replyText: reply, rawStance: 'negotiate_condition', rawReason: '高安全警觉 (believed) 选择先做准备', recalledExperiences: exps, bodyType: input.bodyType }), ...selfImpPatch };
+      return { reply: reply.trim(), decidedToSpeak: true, mood: '笃信谨慎', actions: [{ name: prepAction.name, reason: '当前安全警觉较高，优先准备防护' }], ...fwPatch(reply, 'negotiate_condition', '高安全警觉 (believed) 选择先做准备'), ...selfImpPatch };
     }
     const attDesc = input.drives?.epistemicTendency === 'dismissed' ? '听说有风险但我还没怎么当真啦' : '虽然听过提醒，但我半信半疑想亲手试试看';
     const chosen = readiness.hasProtection && armedAction ? armedAction : directAction;
     if (chosen) {
       const reply = `${input.speaker}，${readiness.hasProtection ? `我备好了 ${readiness.equippedItem}` : attDesc}，让我亲自去试探一下！${tail}`;
-      return { reply: reply.trim(), decidedToSpeak: true, mood: '好奇试探', actions: [{ name: chosen.name, reason: '实践求证：亲自尝试并观察现实反馈' }], freeWill: evaluateFreeWillDecision({ userText: q, replyText: reply, rawStance: 'gladly_accept', rawReason: '尚无亲历痛感，投入实践验证', recalledExperiences: exps, bodyType: input.bodyType }), ...selfImpPatch };
+      return { reply: reply.trim(), decidedToSpeak: true, mood: '好奇试探', actions: [{ name: chosen.name, reason: '实践求证：亲自尝试并观察现实反馈' }], ...fwPatch(reply, 'gladly_accept', '尚无亲历痛感，投入实践验证'), ...selfImpPatch };
     }
   }
 
   if (painfulInherited) {
     const reply = `${input.speaker}，我记得你之前跟我讲过（先验口述：${painfulInherited.lesson}）。虽然没亲手试过，但我们先小心准备一下吧！${tail}`;
-    return { reply: reply.trim(), decidedToSpeak: true, mood: '谨慎回忆', actions: [], freeWill: evaluateFreeWillDecision({ userText: q, replyText: reply, rawStance: 'negotiate_condition', rawReason: `参考先验口述 [seq:${painfulInherited.seq}]`, recalledExperiences: exps, bodyType: input.bodyType }), ...selfImpPatch };
+    return { reply: reply.trim(), decidedToSpeak: true, mood: '谨慎回忆', actions: [], ...fwPatch(reply, 'negotiate_condition', `参考先验口述 [seq:${painfulInherited.seq}]`), ...selfImpPatch };
   }
   if (warmLived && REQUEST_OR_RISK_RE.test(q)) {
     const reply = `${input.speaker}，好呀！上次在 [${warmLived.bodyType}] ${warmLived.realityOutcome} 的感觉超棒（${warmLived.lesson}），这次我也干劲满满，一起上吧！${tail}`;
-    return { reply: reply.trim(), decidedToSpeak: true, mood: '雀跃投入', actions, freeWill: evaluateFreeWillDecision({ userText: q, replyText: reply, rawStance: 'gladly_accept', rawReason: `受正向亲历鼓舞 [seq:${warmLived.seq}]`, recalledExperiences: exps, bodyType: input.bodyType }), ...selfImpPatch };
+    return { reply: reply.trim(), decidedToSpeak: true, mood: '雀跃投入', actions, ...fwPatch(reply, 'gladly_accept', `受正向亲历鼓舞 [seq:${warmLived.seq}]`), ...selfImpPatch };
   }
 
   const askingPast = /(昨天|昨晚|刚才|之前|干了|干嘛|记得|建筑|墙|游戏|约定|进度)/.test(q);
@@ -331,5 +341,5 @@ export function runExperienceAwareMockChat(input: MockChatInput) {
     : (askingPast || greeting) && episodes.length
       ? `${input.speaker}，我刚回想了近期经历：${episodes[episodes.length - 1].replace(/^- /, '')}。无论切到哪具躯体，我都是同一个${input.soulName}呀！${tail}`
       : `${input.speaker}，我在 ${input.bodyType} 听着呢。你说的话我已经记下来啦${actions.length ? `，顺便准备执行动作 ${actions.map((a) => a.name).join('、')}` : ''}。${tail}`;
-  return { reply: reply.trim(), decidedToSpeak: true, mood: commits.length ? '惦记与期待' : '温柔专注', actions, freeWill: evaluateFreeWillDecision({ userText: q, replyText: reply, recalledExperiences: exps, bodyType: input.bodyType }), ...selfImpPatch };
+  return { reply: reply.trim(), decidedToSpeak: true, mood: commits.length ? '惦记与期待' : '温柔专注', actions, ...fwPatch(reply), ...selfImpPatch };
 }

@@ -19,7 +19,7 @@ This project is **not** production-grade and has clear gaps right now:
 * **Unvalidated experimental modules**: Prompt-based mood tracking, inner drives, idle heartbeat, and fragment reconstruction are early experiments and have not been validated in long-term daily use.
 * **Why multiple languages appear in the repo**:
   * The actual runnable backend is **TypeScript on Node.js (`>= 22.18.0`, zero npm dependencies)** plus a plain HTML/CSS/JS local web UI.
-  * The `.py` and `.cs` files shown in GitHub's language bar are just two standalone example stubs in `examples/body-kits/`, and `adapters/minecraft-mindcraft/` (`.mjs`) is a shelved prototype—none of them are needed to run the server.
+  * Python and RimWorld C# integration examples are documented as code blocks in [`docs/examples/body-starter-kits.md`](./docs/examples/body-starter-kits.md), and the shelved Mineflayer prototype is archived under `archive/minecraft-mindcraft/`—none of them are needed to run the server.
   * Candid note: for an AI memory tool, **Python would likely be simpler and easier to maintain** than a 80-file TypeScript project. Node.js native TypeScript was originally chosen to avoid installing external dependencies; simplifying the codebase (or moving toward a much smaller Python core) is under consideration.
 
 ---

@@ -23,6 +23,11 @@ export interface SoulToolBundle {
 
 export const SOUL_STATE_TOOL_NAME = 'soul_report_state';
 
+export interface ToolPromptOptions {
+  enableEmotion?: boolean;
+  enableFreeWill?: boolean;
+}
+
 export function toValidToolName(rawName: string, idx: number, used: Set<string>): string {
   if (/^[a-zA-Z_][a-zA-Z0-9_-]{0,60}$/.test(rawName) && !used.has(rawName)) return rawName;
   const cleaned = rawName.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^[^a-zA-Z_]+/, '') || 'action';
@@ -36,25 +41,37 @@ export function toValidToolName(rawName: string, idx: number, used: Set<string>)
   return candidate;
 }
 
-export function buildSoulToolBundle(actions?: BodyActionSpec[], observeMode?: boolean): SoulToolBundle {
+export function buildSoulToolBundle(
+  actions?: BodyActionSpec[],
+  observeMode?: boolean,
+  opts: ToolPromptOptions = {},
+): SoulToolBundle {
+  const enableEmotion = opts.enableEmotion !== false;
+  const enableFreeWill = opts.enableFreeWill !== false;
   const stateTool: SoulToolDef = {
     name: SOUL_STATE_TOOL_NAME,
-    description: '报告本轮说话意愿、情绪状态、自由意志抉择姿态与是否值得主动铭记（每轮可调用）',
+    description: enableFreeWill || enableEmotion
+      ? '报告本轮说话意愿、状态与是否值得主动铭记（每轮可调用）'
+      : '报告本轮说话意愿与是否值得主动铭记（每轮可调用）',
     parameters: {
       type: 'object',
       properties: {
         speak: { type: 'boolean', description: observeMode ? '静默观察下是否决定开口说话' : '是否向对方回应（直接对话通常为 true）' },
-        mood: { type: 'string', description: '当前内心情绪（2~6个汉字，如：温柔安心、警惕犹豫）' },
-        stance: {
-          type: 'string',
-          enum: ['gladly_accept', 'reluctant_comply', 'negotiate_condition', 'invite_together', 'firm_refuse', 'autonomous_act'],
-          description: '基于亲历体验做出的自由意志抉择姿态',
-        },
-        decisionReason: { type: 'string', description: '一句话说明做出该抉择的原因' },
+        ...(enableEmotion ? { mood: { type: 'string', description: '当前内心情绪（2~6个汉字，如：温柔安心、警惕犹豫）' } } : {}),
+        ...(enableFreeWill
+          ? {
+              stance: {
+                type: 'string',
+                enum: ['gladly_accept', 'reluctant_comply', 'negotiate_condition', 'invite_together', 'firm_refuse', 'autonomous_act'],
+                description: '基于亲历体验做出的自由意志抉择姿态',
+              },
+              decisionReason: { type: 'string', description: '一句话说明做出该抉择的原因' },
+            }
+          : {}),
         selfImportant: { type: 'boolean', description: '本轮是否包含重要约定、秘密或对彼此意义非凡的瞬间' },
         selfImportantReason: { type: 'string', description: '若 selfImportant 为 true，简述主动铭记理由' },
       },
-      required: ['speak', 'mood', 'stance'],
+      required: ['speak', ...(enableEmotion ? ['mood'] : []), ...(enableFreeWill ? ['stance'] : [])],
     },
   };
 
@@ -89,16 +106,27 @@ export function buildSoulToolBundle(actions?: BodyActionSpec[], observeMode?: bo
   };
 }
 
-export function buildMetaInstruction(actions?: BodyActionSpec[], observeMode?: boolean, nativeToolsEnabled = true): string {
+export function buildMetaInstruction(
+  actions?: BodyActionSpec[],
+  observeMode?: boolean,
+  nativeToolsEnabled = true,
+  opts: ToolPromptOptions = {},
+): string {
+  const enableEmotion = opts.enableEmotion !== false;
+  const enableFreeWill = opts.enableFreeWill !== false;
   const lines = [
     '',
-    '## 躯体表达与自由意志结构化意图协议（必须严格遵循）',
+    enableFreeWill ? '## 躯体表达与自由意志结构化意图协议（必须严格遵循）' : '## 躯体表达与记忆协议（必须严格遵循）',
     observeMode
-      ? '- 当前为「静默环境观察」模式：你可以自主决定是否开口说话（speak: true 或 false）；日常琐碎动态可保持安静只记在心里，遇到危险、疼痛反馈、情绪波动或重要发现再开口。'
-      : '- 当前为直接对话模式，请正常回应对方（speak: true），并基于过往亲历体验自主选择 stance 抉择姿态（gladly_accept / reluctant_comply / negotiate_condition / invite_together / firm_refuse / autonomous_act）。',
+      ? '- 当前为「静默环境观察」模式：你可以自主决定是否开口说话（speak: true 或 false）；日常琐碎动态可保持安静只记在心里，遇到危险或重要发现再开口。'
+      : enableFreeWill
+        ? '- 当前为直接对话模式，请正常回应对方（speak: true），并基于过往亲历体验自主选择 stance 抉择姿态（gladly_accept / reluctant_comply / negotiate_condition / invite_together / firm_refuse / autonomous_act）。'
+        : '- 当前为直接对话模式，请自然贴合角色人设与真实记忆回应对方（speak: true）。',
   ];
   if (actions?.length) {
-    lines.push('- 当前与跨躯体开放了以下可执行动作（仅可从列表选用；若你决定拒绝某请求请勿误发冒险动作）：');
+    lines.push(enableFreeWill
+      ? '- 当前与跨躯体开放了以下可执行动作（仅可从列表选用；若你决定拒绝某请求请勿误发冒险动作）：'
+      : '- 当前与跨躯体开放了以下可执行动作（仅可按需从列表选用）：');
     for (const a of actions) {
       const pDesc = a.params ? ` 参数:${JSON.stringify(a.params)}` : '';
       const tag = a.targetBodyId ? ` [跨躯体→${a.targetBodyId}]` : '';
@@ -106,15 +134,23 @@ export function buildMetaInstruction(actions?: BodyActionSpec[], observeMode?: b
     }
   }
   lines.push('- 若你发自内心觉得本轮包含重要约定、秘密或意义非凡的瞬间，请将 `selfImportant` 设为 `true` 并说明理由。');
+  const sampleMeta = JSON.stringify({
+    speak: true,
+    ...(enableEmotion ? { mood: nativeToolsEnabled ? '情绪' : '两个字到六个字的情绪' } : {}),
+    ...(enableFreeWill ? { stance: 'autonomous_act', decisionReason: nativeToolsEnabled ? '理由' : '一句话说明你为何做出这个抉择' } : {}),
+    selfImportant: false,
+    selfImportantReason: '',
+    actions: nativeToolsEnabled ? [] : [{ name: '动作名', targetBodyId: '跨躯体时填目标ID', params: {}, reason: '简短原因' }],
+  });
   if (nativeToolsEnabled) {
     lines.push(
       `- 请优先通过原生工具 \`${SOUL_STATE_TOOL_NAME}\` 与对应的躯体动作工具提交状态与动作意图，并用自然语言直接回复对方（不要把 JSON 或标签写进回复正文）。`,
-      '- 仅当当前模型无法调用原生工具时，才退回在回复最末尾附加一行：<soul_meta>{"speak":true,"mood":"情绪","stance":"autonomous_act","decisionReason":"理由","selfImportant":false,"selfImportantReason":"","actions":[]}</soul_meta>',
+      `- 仅当当前模型无法调用原生工具时，才退回在回复最末尾附加一行：<soul_meta>${sampleMeta}</soul_meta>`,
     );
   } else {
     lines.push(
       '- 请先写出自然的角色回复（若 decide speak=false 可只写一句极简内心注记），并在回复最末尾附上一行 JSON 标签：',
-      '  <soul_meta>{"speak":true,"mood":"两个字到六个字的情绪","stance":"autonomous_act","decisionReason":"一句话说明你为何做出这个抉择","selfImportant":false,"selfImportantReason":"","actions":[{"name":"动作名","targetBodyId":"跨躯体时填目标ID","params":{},"reason":"简短原因"}]}</soul_meta>',
+      `  <soul_meta>${sampleMeta}</soul_meta>`,
     );
   }
   return lines.join('\n');

@@ -16,7 +16,7 @@ import {
 import { loadSoulArchive, readJsonlSafe, resolveArchivePaths, updateSoulIdentity } from '../soul/archive.ts';
 import { awakenSoul } from '../soul/awakening.ts';
 import { FIRST_AWAKENING_ZH, HUB_PHASE, SEED_MAX_BYTES } from '../soul/covenant.ts';
-import type { BodyActionSpec, BodySenseSpec, BodyType, FragmentInput } from '../soul/types.ts';
+import type { BodyActionSpec, BodySenseSpec, BodyType, ExperimentalConfig, FragmentInput } from '../soul/types.ts';
 import { VoiceClient } from '../voice/client.ts';
 import { handleArchiveOpsHttpRoute } from './archive-ops-api.ts';
 import { REPO_ROOT, sanitizeConfigForUi, saveHubConfig, type HubConfig } from './config.ts';
@@ -36,6 +36,20 @@ import type { SimpleWsServer } from './ws.ts';
 
 export { processObserve, processPercept, processProactive, runProactiveUnlocked, type ObserveInput, type PerceptInput };
 
+export interface LastPromptSnapshot {
+  capturedAt: string;
+  source: 'percept' | 'observe' | 'proactive';
+  bodyId: string;
+  bodyType: string;
+  driver: string;
+  model: string;
+  experimental: ExperimentalConfig;
+  systemPrompt: string;
+  userTextPreview: string;
+  charCount: number;
+  estimatedTokens: number;
+}
+
 export interface SoulHubContext {
   config: HubConfig;
   configPath: string;
@@ -46,6 +60,7 @@ export interface SoulHubContext {
   retriever: MemoryRetriever;
   events: SoulEventBus;
   ws: SimpleWsServer | null;
+  lastPrompt: LastPromptSnapshot | null;
   dreamScheduler?: AutoDreamScheduler;
   switchArchive: (nextDir: string) => void;
 }
@@ -178,6 +193,10 @@ export async function handleBodyApiRequest(
     }
     if (req.method === 'GET' && pathname === '/api/resurrect/questions') return okJson({ ok: true, questions: getOralInterviewQuestions() });
     if (req.method === 'POST' && pathname === '/api/resurrect') {
+      if (!ctx.config.experimental.enableResurrection) {
+        sendJson(res, 403, { ok: false, error: '实验性碎片招魂模块未启用（请在设置中开启 enableResurrection）', experimentalDisabled: 'enableResurrection' });
+        return true;
+      }
       const body = await readJsonBody<{ targetDir?: string; soulName: string; partnerName: string; personaHint?: string; fragments: FragmentInput[]; activateAfter?: boolean; allowMerge?: boolean }>(req);
       const rawTarget = String(body.targetDir || '').trim();
       if (!rawTarget) { sendJson(res, 400, { ok: false, error: '必须指定安全的新招魂目标目录 targetDir' }); return true; }

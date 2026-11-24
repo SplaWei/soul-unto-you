@@ -257,21 +257,14 @@ test('Phase 2 跨端联动闭环：MC OpenAI 代理 -> 闲置自动做梦 -> QQ 
     assert.equal(groupSend.params.group_id, 20001);
     assert.ok(String(groupSend.params.message).length > 0);
 
-    // 4. 验证 Phase 2 一键联调台 API
-    const p2StRes = await fetch(`${hub.baseUrl}/api/phase2/status?mcPort=55916`, { headers: hGet });
+    // 4. 验证 Phase 2 一键联调台 API（含已清理的 MC 死路由 404 校验）
+    const p2StRes = await fetch(`${hub.baseUrl}/api/phase2/status`, { headers: hGet });
     assert.equal(p2StRes.status, 200);
-    const p2StJson = (await p2StRes.json()) as { ok: boolean; hubOk: boolean; autoDream: unknown; mc: { runtimeReady: boolean; running: boolean; logs: unknown[] } };
+    const p2StJson = (await p2StRes.json()) as { ok: boolean; hubOk: boolean; autoDream: unknown };
     assert.equal(p2StJson.ok, true);
     assert.equal(p2StJson.hubOk, true);
     assert.ok(p2StJson.autoDream !== null);
-    assert.equal(typeof p2StJson.mc?.runtimeReady, 'boolean');
-    assert.equal(p2StJson.mc?.running, false);
-    assert.ok(Array.isArray(p2StJson.mc?.logs));
-
-    const p2McStopRes = await fetch(`${hub.baseUrl}/api/phase2/mc/stop`, { method: 'POST', headers: hAuth, body: '{}' });
-    assert.equal(p2McStopRes.status, 200);
-    const p2McStopJson = (await p2McStopRes.json()) as { ok: boolean };
-    assert.equal(p2McStopJson.ok, true);
+    assert.equal('mc' in p2StJson, false);
 
     const p2CfgRes = await fetch(`${hub.baseUrl}/api/phase2/qq/config`, { headers: hGet });
     assert.equal(p2CfgRes.status, 200);
@@ -279,16 +272,10 @@ test('Phase 2 跨端联动闭环：MC OpenAI 代理 -> 闲置自动做梦 -> QQ 
     assert.equal(p2CfgJson.ok, true);
     assert.ok(Boolean(p2CfgJson.config?.onebot));
 
-    const p2McRes = await fetch(`${hub.baseUrl}/api/phase2/mc/check`, {
-      method: 'POST',
-      headers: hAuth,
-      body: JSON.stringify({ mcPort: 55916 }),
-    });
-    assert.equal(p2McRes.status, 200);
-    const p2McJson = (await p2McRes.json()) as { ok: boolean; hubOk: boolean; openAiRoute: string };
-    assert.equal(p2McJson.ok, true);
-    assert.equal(p2McJson.hubOk, true);
-    assert.ok(p2McJson.openAiRoute.includes('/v1/bodies/game:minecraft/mindcraft-bot'));
+    for (const deadRoute of ['/api/phase2/mc/check', '/api/phase2/mc/start', '/api/phase2/mc/stop']) {
+      const deadRes = await fetch(`${hub.baseUrl}${deadRoute}`, { method: 'POST', headers: hAuth, body: '{}' });
+      assert.equal(deadRes.status, 404, `已清理路由 ${deadRoute} 必须返回 404`);
+    }
   } finally {
     adapter.stop();
     mockObWs.closeAll();

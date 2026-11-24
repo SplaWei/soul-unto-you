@@ -116,7 +116,7 @@ test('4.1 增量向量索引（情景+体验双索引）、零词面重叠语义
     assert.ok(foodCtx.recalled[0]?.title.includes('花生过敏'));
     assert.ok(foodCtx.recalled[0]?.recallReason.includes('千问语义联想'));
 
-    const mobCtx = await buildRecallContext({ archiveDir: dir, query: mobQuery, bodyId: 'mc-1', bodyType: 'game:minecraft', embedding: embCfg });
+    const mobCtx = await buildRecallContext({ archiveDir: dir, query: mobQuery, bodyId: 'mc-1', bodyType: 'game:minecraft', embedding: embCfg, experimental: { enableFreeWill: true } });
     assert.ok(mobCtx.recalledExperiences.some((e) => e.stimulus.includes('苦力怕')), 'experiences.jsonl 也必须支持跨词语义召回');
 
     // 服务不可达时静默降级，绝不抛错阻塞

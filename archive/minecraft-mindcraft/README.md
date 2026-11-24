@@ -1,4 +1,6 @@
-# `adapters/minecraft-mindcraft/` — Minecraft Java 版轻量联动方案
+> **归档说明**：该手写 Mineflayer 原型已于 `v0.6` (`Task A1`) 归档移出主干，不再直接接入中枢。如需连接外部 Minecraft Agent（如 Mindcraft），请通过 `/v1/bodies/game-mc/mindcraft-1` 接入。
+
+# `archive/minecraft-mindcraft/` — Minecraft Java 版轻量联动方案（已归档）
 
 > 通过《灵魂予你》OpenAI 兼容代理路由（`/v1/bodies/game:minecraft/mindcraft-bot`）或原生 Body Protocol，让她在 Minecraft 中的冒险记忆直接与 QQ、网页端、环世界互通。
 

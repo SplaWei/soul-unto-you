@@ -38,7 +38,9 @@ export async function prepareRetrievalOutsideLock(
   const activeRetriever = ctx.retriever ?? BUILTIN_HYBRID_RETRIEVER;
   if (activeRetriever.isExternal) {
     const precomputedRetrieval = await executeRetrievalWithFallback(activeRetriever, {
-      archiveDir: dir, query, bodyId, bodyType, topK: 5, experienceTopK: 4, embedding: ctx.config.embedding,
+      archiveDir: dir, query, bodyId, bodyType, topK: 5,
+      experienceTopK: ctx.config.experimental.enableFreeWill ? 4 : 0,
+      embedding: ctx.config.embedding,
     });
     return {
       precomputedRetrieval,
@@ -154,7 +156,43 @@ export function scheduleDebouncedVectorSync(
   vectorSyncTimers.set(key, timer);
 }
 
-export function recordObserveInArchive(dir: string, bodyId: string, bodyType: BodyType, summary: string, input: ObserveInput) {
+export function captureLastPrompt(
+  ctx: SoulHubContext,
+  info: {
+    source: 'percept' | 'observe' | 'proactive';
+    bodyId: string;
+    bodyType: string;
+    driver: string;
+    model: string;
+    systemPrompt?: string;
+    userText: string;
+  },
+): void {
+  const sys = String(info.systemPrompt ?? '');
+  const charCount = sys.length;
+  ctx.lastPrompt = {
+    capturedAt: new Date().toISOString(),
+    source: info.source,
+    bodyId: info.bodyId,
+    bodyType: info.bodyType,
+    driver: info.driver,
+    model: info.model,
+    experimental: { ...ctx.config.experimental },
+    systemPrompt: sys,
+    userTextPreview: String(info.userText ?? '').slice(0, 160),
+    charCount,
+    estimatedTokens: Math.ceil(charCount / 2.5),
+  };
+}
+
+export function recordObserveInArchive(
+  dir: string,
+  bodyId: string,
+  bodyType: BodyType,
+  summary: string,
+  input: ObserveInput,
+  allowRealityFeedback = false,
+) {
   const accountId = extractAccountId(input.metadata);
   const personHint = extractPersonIdHint(input.metadata);
   const obsSpeaker = String(input.metadata?.speaker || input.metadata?.senderName || input.displayName || accountId || '').trim();
@@ -165,7 +203,7 @@ export function recordObserveInArchive(dir: string, bodyId: string, bodyType: Bo
     bodyId, bodyType, speaker: input.displayName || `${bodyType}观察器`, role: 'witness', text: summary, provenance: 'verified',
     ...(obsPerson ? { personId: obsPerson.person.personId } : {}), importance: input.urgency === 'high' ? 85 : 55, metadata: input.metadata,
   });
-  return (input.metadata?.realityFeedback || input.urgency === 'high')
+  return allowRealityFeedback && (input.metadata?.realityFeedback || input.urgency === 'high')
     ? ingestRealityFeedback(dir, { bodyId, bodyType, summary, speaker: input.displayName, metadata: input.metadata })
     : null;
 }

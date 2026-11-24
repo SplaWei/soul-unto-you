@@ -115,7 +115,7 @@ test('v0.5-B 目录白名单防旁路/符号链接逃逸、Webhook SSRF 与招�
     }
   });
 
-  await withTestHub({ prefix: 'soul-v05-api-' }, async ({ hub, dir }) => {
+  await withTestHub({ prefix: 'soul-v05-api-', experimental: { enableResurrection: true } }, async ({ hub, dir }) => {
     const headers = authHeaders(hub.apiToken);
     const badWebhooks = [
       'http://169.254.169.254/latest/meta-data',

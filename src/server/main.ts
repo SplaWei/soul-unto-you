@@ -18,7 +18,7 @@ import {
 } from '../soul/archive.ts';
 import { awakenSoul } from '../soul/awakening.ts';
 import { FIRST_AWAKENING_HEADER, FIRST_AWAKENING_ZH, SEED_MAX_BYTES } from '../soul/covenant.ts';
-import type { BodyActionSpec, BodySenseSpec, BodyType, ModalityPacket, SoulIdentity } from '../soul/types.ts';
+import type { BodyActionSpec, BodySenseSpec, BodyType, ExperimentalConfig, ModalityPacket, SoulIdentity } from '../soul/types.ts';
 import { VoiceClient } from '../voice/client.ts';
 import { handleBodyApiRequest, processObserve, processPercept, processProactive, type SoulHubContext } from './body-api.ts';
 import { defaultArchiveDir, defaultConfigPath, demoTemplateArchiveDir, loadHubConfig, REPO_ROOT } from './config.ts';
@@ -153,6 +153,7 @@ export async function createSoulHubServer(options: {
   apiToken?: string;
   allowLan?: boolean;
   dream?: Partial<DreamSchedulerConfig>;
+  experimental?: Partial<ExperimentalConfig>;
   retriever?: MemoryRetriever;
 } = {}) {
   const configPath = options.configPath || defaultConfigPath();
@@ -161,6 +162,7 @@ export async function createSoulHubServer(options: {
   if (options.host) config.host = options.host;
   if (options.port !== undefined) config.port = options.port;
   if (options.dream) config.dream = { ...config.dream, ...options.dream };
+  if (options.experimental) config.experimental = { ...config.experimental, ...options.experimental };
 
   const allowLan = Boolean(options.allowLan || process.env.SOUL_ALLOW_LAN === '1' || process.argv.includes('--allow-lan'));
   if (!isLoopbackBindHost(config.host) && !allowLan) {
@@ -180,6 +182,7 @@ export async function createSoulHubServer(options: {
     retriever: options.retriever ?? resolveConfiguredRetriever(config.retriever),
     events: new SoulEventBus(),
     ws: null,
+    lastPrompt: null,
     switchArchive: (nextDir: string) => {
       const resolved = path.resolve(nextDir);
       clearDebouncedVectorSync(ctx.config.archiveDir);
@@ -292,7 +295,7 @@ export async function createSoulHubServer(options: {
   const baseUrl = `http://${ctx.config.host}:${actualPort}`;
   dreamScheduler.start();
   const heartbeatTimer = setInterval(() => {
-    if (dreamScheduler.getStatus().idleSeconds < 480) return;
+    if (!ctx.config.experimental.enableHeartbeat || dreamScheduler.getStatus().idleSeconds < 480) return;
     void runSoulHeartbeat(ctx.config.archiveDir, {
       isSilentIdle: true,
       reachOutFn: (hint) => processProactive(ctx, { bodyId: ctx.presence.getState().activeBodyId, bodyType: ctx.presence.getState().activeBodyType, hint }),

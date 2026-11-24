@@ -8,13 +8,8 @@ import type { BodyType, ModalityPacket, SoulActionIntent } from '../soul/types.t
 import type { SoulHubContext } from './body-api.ts';
 import { detectSystemNoise } from './noise-filter.ts';
 import {
-  collectAvailableActions,
-  collectImages,
-  dispatchRemoteActions,
-  filterAuthorizedActions,
-  prepareRetrievalOutsideLock,
-  recordObserveInArchive,
-  scheduleDebouncedVectorSync,
+  captureLastPrompt, collectAvailableActions, collectImages, dispatchRemoteActions,
+  filterAuthorizedActions, prepareRetrievalOutsideLock, recordObserveInArchive, scheduleDebouncedVectorSync,
 } from './percept-helpers.ts';
 
 export interface PerceptInput {
@@ -53,6 +48,7 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
   if (!text) throw new Error('感知输入 text 不能为空');
 
   const startedAt = Date.now();
+  const expCfg = ctx.config.experimental;
   ctx.dreamScheduler?.markActivity();
   const prefetchDir = ctx.config.archiveDir;
   const prepared = await prepareRetrievalOutsideLock(ctx, prefetchDir, text, bodyId, bodyType);
@@ -69,7 +65,7 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
     const sameDir = activeDir === prefetchDir;
     const recalledCtx = await buildRecallContext({
       archiveDir: activeDir, query: text, bodyId, bodyType, presence: ctx.presence.getState(),
-      bodyRegistration: bodyReg, embedding: ctx.config.embedding, retriever: ctx.retriever, activePerson,
+      bodyRegistration: bodyReg, embedding: ctx.config.embedding, retriever: ctx.retriever, activePerson, experimental: expCfg,
       queryVec: sameDir ? prepared.queryVec : null,
       vectorMap: sameDir ? prepared.vectorMap : null,
       ...(sameDir && prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}),
@@ -78,7 +74,7 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
       bodyId, bodyType, speaker: actualSpeaker, role: 'partner', text, provenance: 'verified',
       personId: activePerson.person.personId, metadata: input.metadata,
     });
-    const fbExp = input.metadata?.realityFeedback
+    const fbExp = expCfg.enableFreeWill && input.metadata?.realityFeedback
       ? ingestRealityFeedback(activeDir, { bodyId, bodyType, summary: text, speaker: actualSpeaker, metadata: input.metadata })
       : null;
     return {
@@ -92,15 +88,18 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
     systemPrompt: snap.recalledCtx.systemPrompt, externalSystemContext: input.externalSystemContext, userText: text,
     speaker: snap.actualSpeaker, bodyType, soulName: snap.archive.identity.name, catchphrase: snap.archive.identity.catchphrases[0],
     images: collectImages(input.images, input.modalities), availableActions: snap.availableActions, modalities: input.modalities,
-    recalledExperiences: snap.recalledCtx.recalledExperiences, drives: snap.recalledCtx.drives,
+    experimental: expCfg,
+    recalledExperiences: expCfg.enableFreeWill ? snap.recalledCtx.recalledExperiences : undefined,
+    drives: expCfg.enableInnerLife ? snap.recalledCtx.drives : undefined,
   });
+  captureLastPrompt(ctx, { source: 'percept', bodyId, bodyType, driver: chatRes.driver, model: chatRes.model, systemPrompt: chatRes.usedSystemPrompt ?? snap.recalledCtx.systemPrompt, userText: text });
 
   if (chatRes.toolFollowUpFailed) {
     return {
       ok: false, toolFollowUpFailed: true, error: chatRes.toolFollowUpError || '工具二轮补全失败',
-      soulName: snap.archive.identity.name, reply: '', decidedToSpeak: false, mood: chatRes.mood,
-      actions: [] as SoulActionIntent[], freeWill: chatRes.freeWill, driver: chatRes.driver, model: chatRes.model,
-      presence: ctx.presence.getState(),
+      soulName: snap.archive.identity.name, reply: '', decidedToSpeak: false, mood: expCfg.enableEmotion ? chatRes.mood : '温柔平静',
+      actions: [] as SoulActionIntent[], ...(expCfg.enableFreeWill && chatRes.freeWill ? { freeWill: chatRes.freeWill } : {}),
+      driver: chatRes.driver, model: chatRes.model, presence: ctx.presence.getState(),
     };
   }
 
@@ -111,20 +110,20 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
     if (ctx.config.archiveDir !== snap.activeDir || ctx.presence.getEpoch() !== snap.startEpoch) {
       return { stale: true as const };
     }
-    snap.recalledCtx.recallTrace.freeWillDecision = chatRes.freeWill;
+    if (expCfg.enableFreeWill) snap.recalledCtx.recallTrace.freeWillDecision = chatRes.freeWill;
     appendJournal(snap.activeDir, { bodyId, bodyType, speaker: snap.archive.identity.name, role: 'soul', text: chatRes.reply, provenance: 'verified' });
     const engraved = engraveMemoryFromTurn(snap.activeDir, {
       bodyId, bodyType, speaker: snap.actualSpeaker, soulName: snap.archive.identity.name,
       userText: text, soulReply: chatRes.reply, selfImportant: chatRes.selfImportant,
       selfImportantReason: chatRes.selfImportantReason, queryVec: snap.recalledCtx.queryVec, vectorMap: snap.recalledCtx.vectorMap,
     });
-    const emotion = applyTurnEmotion(snap.activeDir, {
-      rawMood: chatRes.mood, stance: chatRes.freeWill?.stance, source: 'turn', note: text.slice(0, 40),
-    });
+    const emotion = expCfg.enableEmotion
+      ? applyTurnEmotion(snap.activeDir, { rawMood: chatRes.mood, stance: chatRes.freeWill?.stance, source: 'turn', note: text.slice(0, 40) })
+      : null;
     const nextPresence = ctx.presence.recordActivity({
       bodyId, bodyType, displayName: input.displayName,
       activity: `在 [${bodyType}] 与 ${snap.actualSpeaker} 交流：${text.slice(0, 28)}`,
-      mood: emotion.moodLabel, emotion: toPresenceEmotion(emotion), energyDelta: -1,
+      mood: emotion ? emotion.moodLabel : '温柔平静', ...(emotion ? { emotion: toPresenceEmotion(emotion) } : {}), energyDelta: -1,
     });
     return { stale: false as const, engraved, nextPresence, emotion };
   });
@@ -132,8 +131,8 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
   if (commit.stale) {
     return {
       ok: false, stale: true, error: STALE_ERR, soulName: snap.archive.identity.name,
-      reply: '', decidedToSpeak: false, mood: chatRes.mood, actions: [] as SoulActionIntent[],
-      presence: ctx.presence.getState(),
+      reply: '', decidedToSpeak: false, mood: expCfg.enableEmotion ? chatRes.mood : '温柔平静',
+      actions: [] as SoulActionIntent[], presence: ctx.presence.getState(),
     };
   }
 
@@ -147,8 +146,10 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
 
   const payload = {
     ok: true, soulName: snap.archive.identity.name, reply: chatRes.reply, decidedToSpeak: chatRes.decidedToSpeak,
-    mood: chatRes.mood, emotion: commit.emotion, activePerson: toActivePersonTrace(snap.activePerson),
-    actions: safeActions, freeWill: chatRes.freeWill, driver: chatRes.driver, model: chatRes.model,
+    mood: expCfg.enableEmotion ? chatRes.mood : '温柔平静', ...(commit.emotion ? { emotion: commit.emotion } : {}),
+    activePerson: toActivePersonTrace(snap.activePerson), actions: safeActions,
+    ...(expCfg.enableFreeWill && chatRes.freeWill ? { freeWill: chatRes.freeWill } : {}),
+    driver: chatRes.driver, model: chatRes.model,
     ...(chatRes.toolCallMode ? { toolCallMode: chatRes.toolCallMode } : {}),
     ...(chatRes.fallbackFrom ? { fallbackFrom: chatRes.fallbackFrom } : {}),
     usedMemoryCount: snap.recalledCtx.activeCommitments.length + snap.recalledCtx.recentEpisodes.length + snap.recalledCtx.recalled.length + snap.recalledCtx.recalledExperiences.length,
@@ -157,7 +158,7 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
     ...(voice !== undefined ? { voice } : {}),
   };
   ctx.ws?.broadcastJson({ type: 'presence', presence: commit.nextPresence });
-  ctx.events.emit('percept', { bodyId, bodyType, mood: chatRes.mood, actions: safeActions });
+  ctx.events.emit('percept', { bodyId, bodyType, mood: payload.mood, actions: safeActions });
   return payload;
 }
 
@@ -178,16 +179,18 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
     };
   }
 
+  const expCfg = ctx.config.experimental;
   const summary = noise.cleanedText;
   ctx.dreamScheduler?.markActivity();
   if (!input.allowSpeak) {
     const out = await ctx.presence.withSoulLock(async () => {
       const dir = ctx.config.archiveDir;
-      const recordedExp = recordObserveInArchive(dir, bodyId, bodyType, summary, input);
-      const emotion = loadEmotionState(dir);
+      const recordedExp = recordObserveInArchive(dir, bodyId, bodyType, summary, input, expCfg.enableFreeWill);
+      const emotion = expCfg.enableEmotion ? loadEmotionState(dir) : null;
       const nextPresence = ctx.presence.recordActivity({
         bodyId, bodyType, displayName: input.displayName,
-        activity: `静默感知 [${bodyType}]：${summary.slice(0, 28)}`, mood: emotion.moodLabel, emotion: toPresenceEmotion(emotion),
+        activity: `静默感知 [${bodyType}]：${summary.slice(0, 28)}`,
+        mood: emotion ? emotion.moodLabel : '温柔平静', ...(emotion ? { emotion: toPresenceEmotion(emotion) } : {}),
       });
       return { recordedExp, nextPresence, emotion };
     });
@@ -198,7 +201,7 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
     ctx.dreamScheduler?.markActivity();
     ctx.ws?.broadcastJson({ type: 'presence', presence: out.nextPresence });
     ctx.events.emit('observe', { bodyId, bodyType, summary, decidedToSpeak: false, recordedExperience: out.recordedExp });
-    return { ok: true, decidedToSpeak: false, reply: '', mood: out.nextPresence.mood, emotion: out.emotion, actions: [], recordedExperience: out.recordedExp, presence: out.nextPresence };
+    return { ok: true, decidedToSpeak: false, reply: '', mood: out.nextPresence.mood, ...(out.emotion ? { emotion: out.emotion } : {}), actions: [], recordedExperience: out.recordedExp, presence: out.nextPresence };
   }
 
   const prefetchDir = ctx.config.archiveDir;
@@ -212,16 +215,17 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
     // 先召回后落盘当前观察目击，避免同一条观察在同一轮 prompt 里出现三次。
     const recalledCtx = await buildRecallContext({
       archiveDir: activeDir, query: summary, bodyId, bodyType, presence: ctx.presence.getState(),
-      bodyRegistration: bodyReg, embedding: ctx.config.embedding, retriever: ctx.retriever,
+      bodyRegistration: bodyReg, embedding: ctx.config.embedding, retriever: ctx.retriever, experimental: expCfg,
       queryVec: sameDir ? prepared.queryVec : null,
       vectorMap: sameDir ? prepared.vectorMap : null,
       ...(sameDir && prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}),
     });
-    const recordedExp = recordObserveInArchive(activeDir, bodyId, bodyType, summary, input);
-    const emotion = loadEmotionState(activeDir);
+    const recordedExp = recordObserveInArchive(activeDir, bodyId, bodyType, summary, input, expCfg.enableFreeWill);
+    const emotion = expCfg.enableEmotion ? loadEmotionState(activeDir) : null;
     ctx.presence.recordActivity({
       bodyId, bodyType, displayName: input.displayName,
-      activity: `静默感知 [${bodyType}]：${summary.slice(0, 28)}`, mood: emotion.moodLabel, emotion: toPresenceEmotion(emotion),
+      activity: `静默感知 [${bodyType}]：${summary.slice(0, 28)}`,
+      mood: emotion ? emotion.moodLabel : '温柔平静', ...(emotion ? { emotion: toPresenceEmotion(emotion) } : {}),
     });
     return { activeDir, startEpoch, archive, recordedExp, recalledCtx, availableActions: collectAvailableActions(ctx, bodyId) };
   });
@@ -234,16 +238,19 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
     systemPrompt: snap.recalledCtx.systemPrompt, userText: `[环境静默观察 (${input.urgency || 'normal'})] ${summary}`,
     speaker: input.displayName || bodyType, bodyType, soulName: snap.archive.identity.name, catchphrase: snap.archive.identity.catchphrases[0],
     images: collectImages(input.images, input.modalities), availableActions: snap.availableActions, modalities: input.modalities,
-    observeMode: true, recalledExperiences: snap.recalledCtx.recalledExperiences, drives: snap.recalledCtx.drives,
+    observeMode: true, experimental: expCfg,
+    recalledExperiences: expCfg.enableFreeWill ? snap.recalledCtx.recalledExperiences : undefined,
+    drives: expCfg.enableInnerLife ? snap.recalledCtx.drives : undefined,
   });
+  captureLastPrompt(ctx, { source: 'observe', bodyId, bodyType, driver: chatRes.driver, model: chatRes.model, systemPrompt: chatRes.usedSystemPrompt ?? snap.recalledCtx.systemPrompt, userText: summary });
 
   if (chatRes.toolFollowUpFailed) {
-    const emotion = loadEmotionState(snap.activeDir);
+    const emotion = expCfg.enableEmotion ? loadEmotionState(snap.activeDir) : null;
     return {
       ok: false, toolFollowUpFailed: true, error: chatRes.toolFollowUpError || '工具二轮补全失败',
-      decidedToSpeak: false, reply: '', mood: emotion.moodLabel, emotion,
-      actions: [] as SoulActionIntent[], freeWill: chatRes.freeWill, recordedExperience: snap.recordedExp,
-      driver: chatRes.driver, model: chatRes.model, presence: ctx.presence.getState(),
+      decidedToSpeak: false, reply: '', mood: emotion ? emotion.moodLabel : '温柔平静', ...(emotion ? { emotion } : {}),
+      actions: [] as SoulActionIntent[], ...(expCfg.enableFreeWill && chatRes.freeWill ? { freeWill: chatRes.freeWill } : {}),
+      recordedExperience: snap.recordedExp, driver: chatRes.driver, model: chatRes.model, presence: ctx.presence.getState(),
     };
   }
 
@@ -254,37 +261,36 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
     }
     if (chatRes.decidedToSpeak && chatRes.reply) {
       appendJournal(snap.activeDir, { bodyId, bodyType, speaker: snap.archive.identity.name, role: 'soul', text: chatRes.reply, provenance: 'verified' });
-      const emotion = applyTurnEmotion(snap.activeDir, {
-        rawMood: chatRes.mood, stance: chatRes.freeWill?.stance, source: 'observe', note: summary.slice(0, 40),
-      });
+      const emotion = expCfg.enableEmotion ? applyTurnEmotion(snap.activeDir, { rawMood: chatRes.mood, stance: chatRes.freeWill?.stance, source: 'observe', note: summary.slice(0, 40) }) : null;
       return {
         stale: false as const,
         presence: ctx.presence.recordActivity({
           bodyId, bodyType, activity: `在 [${bodyType}] 主动开口：${chatRes.reply.slice(0, 24)}`,
-          mood: emotion.moodLabel, emotion: toPresenceEmotion(emotion),
+          mood: emotion ? emotion.moodLabel : '温柔平静', ...(emotion ? { emotion: toPresenceEmotion(emotion) } : {}),
         }),
         emotion,
       };
     }
-    return { stale: false as const, presence: ctx.presence.getState(), emotion: loadEmotionState(snap.activeDir) };
+    return { stale: false as const, presence: ctx.presence.getState(), emotion: expCfg.enableEmotion ? loadEmotionState(snap.activeDir) : null };
   });
 
   if (finalState.stale) {
     return {
       ok: false, stale: true, error: STALE_ERR, decidedToSpeak: false, reply: '',
-      mood: chatRes.mood, actions: [] as SoulActionIntent[], recordedExperience: snap.recordedExp,
+      mood: expCfg.enableEmotion ? chatRes.mood : '温柔平静', actions: [] as SoulActionIntent[], recordedExperience: snap.recordedExp,
       presence: ctx.presence.getState(),
     };
   }
 
+  const obsMood = expCfg.enableEmotion ? chatRes.mood : '温柔平静';
   dispatchRemoteActions(ctx, bodyId, bodyType, safeActions);
   if (chatRes.decidedToSpeak && chatRes.reply) {
-    ctx.ws?.broadcastJson({ type: 'proactive', bodyId, bodyType, reply: chatRes.reply, mood: chatRes.mood, actions: safeActions });
+    ctx.ws?.broadcastJson({ type: 'proactive', bodyId, bodyType, reply: chatRes.reply, mood: obsMood, actions: safeActions });
   }
   ctx.dreamScheduler?.markActivity();
   ctx.ws?.broadcastJson({ type: 'presence', presence: finalState.presence });
   ctx.events.emit('observe', { bodyId, bodyType, summary, decidedToSpeak: chatRes.decidedToSpeak, reply: chatRes.reply, actions: safeActions, recordedExperience: snap.recordedExp });
-  return { ok: true, decidedToSpeak: chatRes.decidedToSpeak, reply: chatRes.reply, mood: chatRes.mood, emotion: finalState.emotion, actions: safeActions, freeWill: chatRes.freeWill, recordedExperience: snap.recordedExp, driver: chatRes.driver, model: chatRes.model, presence: finalState.presence };
+  return { ok: true, decidedToSpeak: chatRes.decidedToSpeak, reply: chatRes.reply, mood: obsMood, ...(finalState.emotion ? { emotion: finalState.emotion } : {}), actions: safeActions, ...(expCfg.enableFreeWill && chatRes.freeWill ? { freeWill: chatRes.freeWill } : {}), recordedExperience: snap.recordedExp, driver: chatRes.driver, model: chatRes.model, presence: finalState.presence };
 }
 
 async function executeProactive(
@@ -292,6 +298,7 @@ async function executeProactive(
   input: { bodyId?: string; bodyType?: BodyType; hint?: string },
   useLock: boolean,
 ) {
+  const expCfg = ctx.config.experimental;
   const bodyId = String(input.bodyId || 'web-console').trim();
   const bodyType: BodyType = String(input.bodyType || 'web').trim() || 'web';
   const query = input.hint || '未完成约定 近期记忆';
@@ -309,7 +316,7 @@ async function executeProactive(
     const sameDir = activeDir === prefetchDir;
     const recalledCtx = await buildRecallContext({
       archiveDir: activeDir, query, bodyId, bodyType, presence: ctx.presence.getState(),
-      bodyRegistration: bodyReg, embedding: ctx.config.embedding, retriever: ctx.retriever,
+      bodyRegistration: bodyReg, embedding: ctx.config.embedding, retriever: ctx.retriever, experimental: expCfg,
       queryVec: sameDir ? prepared.queryVec : null,
       vectorMap: sameDir ? prepared.vectorMap : null,
       ...(sameDir && prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}),
@@ -321,13 +328,14 @@ async function executeProactive(
     systemPrompt: snap.recalledCtx.systemPrompt,
     userText: input.hint || '现在有点安静，你想起了一件记挂的事或未完成约定，请主动对同行者说一句自然温柔的开场白。',
     speaker: snap.archive.identity.partnerName, bodyType, soulName: snap.archive.identity.name,
-    catchphrase: snap.archive.identity.catchphrases[0], availableActions: snap.bodyReg?.actions,
+    catchphrase: snap.archive.identity.catchphrases[0], availableActions: snap.bodyReg?.actions, experimental: expCfg,
   });
+  captureLastPrompt(ctx, { source: 'proactive', bodyId, bodyType, driver: chatRes.driver, model: chatRes.model, systemPrompt: chatRes.usedSystemPrompt ?? snap.recalledCtx.systemPrompt, userText: input.hint || '主动搭话' });
 
   if (chatRes.toolFollowUpFailed) {
     return {
       ok: false, toolFollowUpFailed: true, error: chatRes.toolFollowUpError || '工具二轮补全失败',
-      soulName: snap.archive.identity.name, reply: '', mood: chatRes.mood,
+      soulName: snap.archive.identity.name, reply: '', mood: expCfg.enableEmotion ? chatRes.mood : '温柔平静',
       actions: [] as SoulActionIntent[], driver: chatRes.driver, model: chatRes.model,
       presence: ctx.presence.getState(),
     };
@@ -339,9 +347,10 @@ async function executeProactive(
       return { stale: true as const };
     }
     appendJournal(snap.activeDir, { bodyId, bodyType, speaker: snap.archive.identity.name, role: 'soul', text: chatRes.reply, provenance: 'verified', tags: ['proactive'] });
-    const emotion = applyTurnEmotion(snap.activeDir, { rawMood: chatRes.mood, source: 'turn', note: '主动搭话' });
+    const emotion = expCfg.enableEmotion ? applyTurnEmotion(snap.activeDir, { rawMood: chatRes.mood, source: 'turn', note: '主动搭话' }) : null;
     const presence = ctx.presence.recordActivity({
-      bodyId, bodyType, activity: `主动向 ${snap.archive.identity.partnerName} 搭话`, mood: emotion.moodLabel, emotion: toPresenceEmotion(emotion),
+      bodyId, bodyType, activity: `主动向 ${snap.archive.identity.partnerName} 搭话`,
+      mood: emotion ? emotion.moodLabel : '温柔平静', ...(emotion ? { emotion: toPresenceEmotion(emotion) } : {}),
     });
     return { stale: false as const, presence, emotion };
   });
@@ -349,13 +358,14 @@ async function executeProactive(
   if (commit.stale) {
     return {
       ok: false, stale: true, error: STALE_ERR, soulName: snap.archive.identity.name,
-      reply: '', mood: chatRes.mood, actions: [] as SoulActionIntent[], presence: ctx.presence.getState(),
+      reply: '', mood: expCfg.enableEmotion ? chatRes.mood : '温柔平静', actions: [] as SoulActionIntent[], presence: ctx.presence.getState(),
     };
   }
 
-  ctx.ws?.broadcastJson({ type: 'proactive', bodyId, bodyType, reply: chatRes.reply, mood: chatRes.mood, actions: safeActions });
+  const proMood = expCfg.enableEmotion ? chatRes.mood : '温柔平静';
+  ctx.ws?.broadcastJson({ type: 'proactive', bodyId, bodyType, reply: chatRes.reply, mood: proMood, actions: safeActions });
   ctx.events.emit('proactive', { bodyId, bodyType, reply: chatRes.reply, actions: safeActions });
-  return { ok: true, soulName: snap.archive.identity.name, reply: chatRes.reply, mood: chatRes.mood, emotion: commit.emotion, actions: safeActions, driver: chatRes.driver, model: chatRes.model, recallTrace: snap.recalledCtx.recallTrace, presence: commit.presence };
+  return { ok: true, soulName: snap.archive.identity.name, reply: chatRes.reply, mood: proMood, ...(commit.emotion ? { emotion: commit.emotion } : {}), actions: safeActions, driver: chatRes.driver, model: chatRes.model, recallTrace: snap.recalledCtx.recallTrace, presence: commit.presence };
 }
 
 export const runProactiveUnlocked = (ctx: SoulHubContext, input: { bodyId?: string; bodyType?: BodyType; hint?: string }) =>
