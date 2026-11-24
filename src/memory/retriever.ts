@@ -38,6 +38,7 @@ export interface MemoryRetrievalResult {
   rerankActive?: boolean;
   rerankModel?: string;
   rerankFallbackReason?: string;
+  retrievalMs?: number;
   fallbackFrom?: string;
   fallbackReason?: string;
   diagnostics?: Record<string, unknown>;
@@ -91,6 +92,7 @@ export class BuiltinHybridRetriever implements MemoryRetriever {
   }
 
   async retrieve(req: MemoryRetrievalRequest): Promise<MemoryRetrievalResult> {
+    const startedAt = performance.now();
     const topK = Math.max(1, Math.min(20, Math.round(req.topK ?? 6)));
     const nowMs = req.nowMs ?? Date.now();
     let vectorMap = req.vectorMap ?? null;
@@ -190,6 +192,7 @@ export class BuiltinHybridRetriever implements MemoryRetriever {
       rerankActive,
       ...(rerankModel ? { rerankModel } : {}),
       ...(rerankFallbackReason ? { rerankFallbackReason } : {}),
+      retrievalMs: Number((performance.now() - startedAt).toFixed(2)),
       ...(embFallbackReason ? { diagnostics: { embeddingFallbackReason: embFallbackReason } } : {}),
     };
   }
@@ -274,6 +277,7 @@ export function createHttpMemoryRetriever(config: {
   return {
     id, name, isExternal: true,
     async retrieve(req: MemoryRetrievalRequest): Promise<MemoryRetrievalResult> {
+      const startedAt = performance.now();
       if (!endpoint) throw new Error('外部记忆检索引擎未配置 endpoint');
       const archiveId = crypto.createHash('sha256').update(req.archiveDir).digest('hex').slice(0, 12);
       const res = await fetch(`${endpoint}/retrieve`, {
@@ -299,6 +303,7 @@ export function createHttpMemoryRetriever(config: {
         ...(data.embeddingModel ? { embeddingModel: String(data.embeddingModel) } : {}),
         ...(data.rerankActive !== undefined ? { rerankActive: Boolean(data.rerankActive) } : {}),
         ...(data.rerankModel ? { rerankModel: String(data.rerankModel) } : {}),
+        retrievalMs: Number((performance.now() - startedAt).toFixed(2)),
         ...(data.diagnostics ? { diagnostics: data.diagnostics } : {}),
       };
     },

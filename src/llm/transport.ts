@@ -1,6 +1,12 @@
 import type { LlmEndpointConfig } from './router.ts';
 import type { NativeToolCall } from './tools.ts';
 
+export interface LlmTokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
 export interface LlmCallOutcome {
   status: number;
   ok: boolean;
@@ -11,6 +17,24 @@ export interface LlmCallOutcome {
   rawModelParts?: Array<Record<string, unknown>>;
   rawOpenAiToolCalls?: Array<Record<string, unknown>>;
   toolsUnsupported?: boolean;
+  usage?: LlmTokenUsage;
+}
+
+function extractUsage(raw: Record<string, unknown> | undefined): LlmTokenUsage | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const num = (v: unknown): number | undefined => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined;
+  };
+  const promptTokens = num(raw.prompt_tokens ?? raw.promptTokenCount);
+  const completionTokens = num(raw.completion_tokens ?? raw.candidatesTokenCount);
+  const totalTokens = num(raw.total_tokens ?? raw.totalTokenCount);
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) return undefined;
+  return {
+    ...(promptTokens !== undefined ? { promptTokens } : {}),
+    ...(completionTokens !== undefined ? { completionTokens } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+  };
 }
 
 export function resolveCandidateModels(ep: LlmEndpointConfig): string[] {
@@ -129,6 +153,7 @@ export async function callOpenAiCompatible(
         message?: { content?: string | null; tool_calls?: Array<Record<string, unknown>> };
         finish_reason?: string;
       }>;
+      usage?: Record<string, unknown>;
     };
     try {
       data = JSON.parse(raw) as typeof data;
@@ -149,9 +174,11 @@ export async function callOpenAiCompatible(
       const reason = choice?.finish_reason ? `finish_reason=${choice.finish_reason}` : '无输出文本';
       return { status: res.status, ok: false, text: '', err: `模型返回空内容 (${reason})`, retryable: true };
     }
+    const usage = extractUsage(data?.usage);
     return {
       status: res.status, ok: true, text, err: '', retryable: false,
       ...(toolCalls.length ? { toolCalls, rawOpenAiToolCalls: rawToolCalls } : {}),
+      ...(usage ? { usage } : {}),
     };
   } catch (err) {
     return formatNetworkError(err, timeoutMs);
@@ -222,6 +249,7 @@ export async function callGeminiRest(
     let data: {
       candidates?: Array<{ content?: { parts?: Array<Record<string, unknown>> }; finishReason?: string }>;
       promptFeedback?: { blockReason?: string };
+      usageMetadata?: Record<string, unknown>;
     };
     try {
       data = JSON.parse(raw) as typeof data;
@@ -242,9 +270,11 @@ export async function callGeminiRest(
       const reason = data?.promptFeedback?.blockReason || candidate?.finishReason || '无输出文本';
       return { status: res.status, ok: false, text: '', err: `模型返回空内容 (${reason})`, retryable: true };
     }
+    const usage = extractUsage(data?.usageMetadata);
     return {
       status: res.status, ok: true, text, err: '', retryable: false,
       ...(toolCalls.length ? { toolCalls, rawModelParts: rawParts } : {}),
+      ...(usage ? { usage } : {}),
     };
   } catch (err) {
     return formatNetworkError(err, timeoutMs);

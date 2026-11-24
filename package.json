@@ -18,6 +18,7 @@
     "mcp": "node src/server/mcp-stdio.ts",
     "import:surfcore": "node scripts/import-surfcore.ts",
     "adapter:qq": "node adapters/qq-onebot/main.ts",
+    "eval:llm": "node scripts/eval-real-llm.ts --live",
     "workbench": "cmd /c start-soul-test.cmd"
   },
   "dependencies": {}

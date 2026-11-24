@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { LlmTokenUsage } from '../llm/router.ts';
 import { ingestRealityFeedback } from '../memory/experience.ts';
 import { extractAccountId, extractPersonIdHint, resolveAndRecordSpeaker } from '../memory/relations.ts';
 import {
@@ -45,7 +46,8 @@ export async function prepareRetrievalOutsideLock(
   query: string,
   bodyId: string,
   bodyType: BodyType,
-): Promise<{ precomputedRetrieval?: MemoryRetrievalResult; queryVec: number[] | null; vectorMap: Record<string, number[]> | null }> {
+): Promise<{ precomputedRetrieval?: MemoryRetrievalResult; queryVec: number[] | null; vectorMap: Record<string, number[]> | null; prepMs: number }> {
+  const t0 = performance.now();
   const activeRetriever = ctx.retriever ?? BUILTIN_HYBRID_RETRIEVER;
   if (activeRetriever.isExternal || ctx.config.rerank?.enabled) {
     const precomputedRetrieval = await executeRetrievalWithFallback(activeRetriever, {
@@ -60,12 +62,14 @@ export async function prepareRetrievalOutsideLock(
       precomputedRetrieval,
       queryVec: precomputedRetrieval.queryVec ?? null,
       vectorMap: precomputedRetrieval.vectorMap ?? null,
+      prepMs: Number((performance.now() - t0).toFixed(2)),
     };
   }
   const prefetched = await activeRetriever.prefetch?.({ archiveDir: dir, query, embedding: ctx.config.embedding });
   return {
     queryVec: prefetched?.queryVec ?? null,
     vectorMap: prefetched?.vectorMap ?? null,
+    prepMs: Number((performance.now() - t0).toFixed(2)),
   };
 }
 
@@ -180,6 +184,7 @@ export function captureLastPrompt(
     model: string;
     systemPrompt?: string;
     userText: string;
+    usage?: LlmTokenUsage;
   },
 ): void {
   const sys = String(info.systemPrompt ?? '');
@@ -196,6 +201,9 @@ export function captureLastPrompt(
     userTextPreview: String(info.userText ?? '').slice(0, 160),
     charCount,
     estimatedTokens: Math.ceil(charCount / 2.5),
+    ...(info.usage?.promptTokens !== undefined ? { promptTokens: info.usage.promptTokens } : {}),
+    ...(info.usage?.completionTokens !== undefined ? { completionTokens: info.usage.completionTokens } : {}),
+    ...(info.usage?.totalTokens !== undefined ? { totalTokens: info.usage.totalTokens } : {}),
   };
 }
 

@@ -9,8 +9,9 @@ import {
   buildMetaInstruction, buildSoulToolBundle, mergeDualTrackTurn, SOUL_STATE_TOOL_NAME,
   type NativeToolCall, type SoulToolBundle, type ToolCallMode,
 } from './tools.ts';
-import { callGeminiRest, callOpenAiCompatible, resolveCandidateModels, type LlmCallOutcome } from './transport.ts';
+import { callGeminiRest, callOpenAiCompatible, resolveCandidateModels, type LlmCallOutcome, type LlmTokenUsage } from './transport.ts';
 
+export type { LlmTokenUsage };
 export type LlmDriver = 'mock' | 'openai-compatible' | 'gemini-aistudio' | 'vertex-express' | 'vertex-ai';
 
 export interface LlmEndpointConfig {
@@ -65,6 +66,20 @@ export interface ChatTurnResult {
   fallbackFrom?: string;
   attemptedModels?: string[];
   usedSystemPrompt?: string;
+  usage?: LlmTokenUsage;
+}
+
+function mergeTokenUsage(a?: LlmTokenUsage, b?: LlmTokenUsage): LlmTokenUsage | undefined {
+  if (!a && !b) return undefined;
+  const sum = (x?: number, y?: number) => (x !== undefined && y !== undefined ? x + y : x ?? y);
+  const promptTokens = sum(a?.promptTokens, b?.promptTokens);
+  const completionTokens = sum(a?.completionTokens, b?.completionTokens);
+  const totalTokens = sum(a?.totalTokens, b?.totalTokens);
+  return {
+    ...(promptTokens !== undefined ? { promptTokens } : {}),
+    ...(completionTokens !== undefined ? { completionTokens } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+  };
 }
 
 function formatModalitiesNote(modalities?: ModalityPacket[]): string {
@@ -118,6 +133,7 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
     attemptedModels: string[];
     fallbackFrom?: string;
     usedSystemPrompt: string;
+    usage?: LlmTokenUsage;
   }> {
     if (ep.driver !== 'mock' && !String(ep.baseUrl ?? '').trim() && !String(ep.apiKey ?? '').trim()) {
       throw new Error('LLM 未配置：请先填写 baseUrl 或 apiKey，已阻止向默认公网端点外发灵魂档案');
@@ -162,6 +178,7 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
           attemptedModels: tried,
           usedSystemPrompt: usedSys,
           ...(i > 0 ? { fallbackFrom: models[0] } : {}),
+          ...(out.usage ? { usage: out.usage } : {}),
         };
       }
       const statusLabel = out.status ? `HTTP ${out.status}` : '网络异常';
@@ -179,7 +196,7 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
     images: Array<{ base64: string; mimeType?: string }> | undefined,
     first: { toolCalls: NativeToolCall[]; rawModelParts?: Array<Record<string, unknown>>; rawOpenAiToolCalls?: Array<Record<string, unknown>> },
     toolBundle?: SoulToolBundle,
-  ): Promise<{ ok: boolean; text: string; err?: string }> {
+  ): Promise<{ ok: boolean; text: string; err?: string; usage?: LlmTokenUsage }> {
     try {
       let out: LlmCallOutcome;
       if (ep.driver === 'openai-compatible') {
@@ -212,7 +229,9 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
           ...(toolBundle ? { tools: toolBundle.geminiTools, toolConfig: { functionCallingConfig: { mode: 'NONE' } } } : {}),
         });
       }
-      return out.ok ? { ok: true, text: out.text } : { ok: false, text: '', err: out.err || `HTTP ${out.status}` };
+      return out.ok
+        ? { ok: true, text: out.text, ...(out.usage ? { usage: out.usage } : {}) }
+        : { ok: false, text: '', err: out.err || `HTTP ${out.status}` };
     } catch (err) {
       return { ok: false, text: '', err: err instanceof Error ? err.message : String(err) };
     }
@@ -254,6 +273,7 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
       bundle: toolBundle, fallbackSystemPrompt: fallbackSystem,
     });
     let finalText = first.text;
+    let followUsage: LlmTokenUsage | undefined;
     let toolFollowUpFailed = false;
     let toolFollowUpError: string | undefined;
 
@@ -265,6 +285,7 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
         const followUp = await this.completeAfterToolCalls(
           this.config.chat, first.modelUsed, followSys, userPromptText, input.images, first, toolBundle,
         );
+        followUsage = followUp.usage;
         if (followUp.ok && followUp.text.trim()) {
           finalText = followUp.text;
         } else {
@@ -274,6 +295,7 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
       }
     }
 
+    const usage = mergeTokenUsage(first.usage, followUsage);
     const merged = mergeDualTrackTurn({
       rawText: finalText, toolCalls: first.toolCalls, toolBundle,
       allowedActions: input.availableActions, defaultSpeak: !input.observeMode,
@@ -300,6 +322,7 @@ export class LlmRouter implements DreamLlmAdapter, ResurrectionLlmAdapter {
       attemptedModels: first.attemptedModels,
       ...(first.fallbackFrom ? { fallbackFrom: first.fallbackFrom } : {}),
       usedSystemPrompt: first.usedSystemPrompt,
+      ...(usage ? { usage } : {}),
     };
   }
 

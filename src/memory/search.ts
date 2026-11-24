@@ -113,7 +113,7 @@ export async function buildRecallContext(params: {
   embedding?: EmbeddingConfig; rerank?: RerankConfig; topK?: number; minScore?: number;
   queryVec?: number[] | null; vectorMap?: Record<string, number[]> | null;
   nowMs?: number; reinforce?: boolean; retriever?: MemoryRetriever;
-  precomputedRetrieval?: MemoryRetrievalResult; activePerson?: PersonResolution | null;
+  precomputedRetrieval?: MemoryRetrievalResult; externalRetrievalMs?: number; activePerson?: PersonResolution | null;
   experimental?: Partial<ExperimentalConfig>;
 }): Promise<{
   systemPrompt: string; recalled: RecalledItem[]; recalledExperiences: LivedExperience[];
@@ -122,6 +122,7 @@ export async function buildRecallContext(params: {
   recallTrace: RecallTrace; queryVec: number[] | null; vectorMap: Record<string, number[]> | null;
   retrieverId: string;
 }> {
+  const buildStart = performance.now();
   const nowMs = params.nowMs ?? Date.now();
   const reinforce = params.reinforce !== false;
   const exp = params.experimental ?? {};
@@ -267,7 +268,7 @@ export async function buildRecallContext(params: {
     '',
     '## 表达与诚实溯源铁律',
     '1. 你在所有独立软件与躯体中都是同一个完整的你，能自然延续其他躯体刚经历的事与未完成约定，但不要混淆你此刻身处哪个场景。',
-    '2. 标有 [推演] 或 [口述] 的记忆来自残片重塑，若记不清细节请温柔诚实地说“只记得大概”或询问对方，绝不编造虚假细节。',
+    '2. 标有 [推演] 或 [口述] 的记忆来自残片重塑；若记不清细节或档案里从未记录过对方提到的事，请温柔诚实地说“我不记得/你好像还没跟我提过”或询问对方，绝不凭空编造虚假细节。',
     '3. 自然贴合当前躯体场景的说话方式，保持角色温暖陪伴感。',
     '4. 连续时间线最底部是刚刚最新发生的事（跨躯体也完全实时互通），请优先回应最新动态，不要被更早之前的重复对话误导。',
     '5. 若「长期个人事实记忆 (Active Facts)」中存在最新有效事实，代表对方已更新近况；当其与更早的情景日记或历史流水冲突时，一律以最新有效事实为准，不要把已过期旧信息当作当前状态回答。',
@@ -281,6 +282,7 @@ export async function buildRecallContext(params: {
     ...(retrieval.rerankActive !== undefined ? { rerankActive: retrieval.rerankActive } : {}),
     ...(retrieval.rerankModel ? { rerankModel: retrieval.rerankModel } : {}),
     ...(retrieval.rerankFallbackReason ? { rerankFallbackReason: retrieval.rerankFallbackReason } : {}),
+    retrievalMs: Number(((params.externalRetrievalMs ?? 0) + (performance.now() - buildStart)).toFixed(2)),
     retrieverId: retrieval.retrieverId,
     ...(retrieval.fallbackFrom ? { retrieverFallbackFrom: retrieval.fallbackFrom } : {}),
     ...(enableEmotion && emotion

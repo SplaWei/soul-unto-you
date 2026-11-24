@@ -69,7 +69,7 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
       bodyRegistration: bodyReg, activePerson, ...buildRecallRetrievalParams(ctx),
       queryVec: sameDir ? prepared.queryVec : null,
       vectorMap: sameDir ? prepared.vectorMap : null,
-      ...(sameDir && prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}),
+      ...(sameDir ? { externalRetrievalMs: prepared.prepMs, ...(prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}) } : {}),
     });
     appendJournal(activeDir, {
       bodyId, bodyType, speaker: actualSpeaker, role: 'partner', text, provenance: 'verified',
@@ -93,7 +93,7 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
     recalledExperiences: expCfg.enableFreeWill ? snap.recalledCtx.recalledExperiences : undefined,
     drives: expCfg.enableInnerLife ? snap.recalledCtx.drives : undefined,
   });
-  captureLastPrompt(ctx, { source: 'percept', bodyId, bodyType, driver: chatRes.driver, model: chatRes.model, systemPrompt: chatRes.usedSystemPrompt ?? snap.recalledCtx.systemPrompt, userText: text });
+  captureLastPrompt(ctx, { source: 'percept', bodyId, bodyType, driver: chatRes.driver, model: chatRes.model, systemPrompt: chatRes.usedSystemPrompt ?? snap.recalledCtx.systemPrompt, userText: text, usage: chatRes.usage });
 
   if (chatRes.toolFollowUpFailed) {
     return {
@@ -219,7 +219,7 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
       bodyRegistration: bodyReg, ...buildRecallRetrievalParams(ctx),
       queryVec: sameDir ? prepared.queryVec : null,
       vectorMap: sameDir ? prepared.vectorMap : null,
-      ...(sameDir && prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}),
+      ...(sameDir ? { externalRetrievalMs: prepared.prepMs, ...(prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}) } : {}),
     });
     const recordedExp = recordObserveInArchive(activeDir, bodyId, bodyType, summary, input, expCfg);
     const emotion = expCfg.enableEmotion ? loadEmotionState(activeDir) : null;
@@ -243,7 +243,7 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
     recalledExperiences: expCfg.enableFreeWill ? snap.recalledCtx.recalledExperiences : undefined,
     drives: expCfg.enableInnerLife ? snap.recalledCtx.drives : undefined,
   });
-  captureLastPrompt(ctx, { source: 'observe', bodyId, bodyType, driver: chatRes.driver, model: chatRes.model, systemPrompt: chatRes.usedSystemPrompt ?? snap.recalledCtx.systemPrompt, userText: summary });
+  captureLastPrompt(ctx, { source: 'observe', bodyId, bodyType, driver: chatRes.driver, model: chatRes.model, systemPrompt: chatRes.usedSystemPrompt ?? snap.recalledCtx.systemPrompt, userText: summary, usage: chatRes.usage });
 
   if (chatRes.toolFollowUpFailed) {
     const emotion = expCfg.enableEmotion ? loadEmotionState(snap.activeDir) : null;
@@ -307,7 +307,7 @@ async function executeProactive(
   const prefetchDir = ctx.config.archiveDir;
   const prepared = useLock
     ? await prepareRetrievalOutsideLock(ctx, prefetchDir, query, bodyId, bodyType)
-    : { queryVec: null, vectorMap: null };
+    : { queryVec: null, vectorMap: null, prepMs: 0 };
 
   const snap = await runInLock(async () => {
     const activeDir = ctx.config.archiveDir;
@@ -320,7 +320,7 @@ async function executeProactive(
       bodyRegistration: bodyReg, ...buildRecallRetrievalParams(ctx),
       queryVec: sameDir ? prepared.queryVec : null,
       vectorMap: sameDir ? prepared.vectorMap : null,
-      ...(sameDir && prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}),
+      ...(sameDir ? { externalRetrievalMs: prepared.prepMs, ...(prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}) } : {}),
     });
     return { activeDir, startEpoch, archive, bodyReg, recalledCtx };
   });
@@ -331,7 +331,7 @@ async function executeProactive(
     speaker: snap.archive.identity.partnerName, bodyType, soulName: snap.archive.identity.name,
     catchphrase: snap.archive.identity.catchphrases[0], availableActions: snap.bodyReg?.actions, experimental: expCfg,
   });
-  captureLastPrompt(ctx, { source: 'proactive', bodyId, bodyType, driver: chatRes.driver, model: chatRes.model, systemPrompt: chatRes.usedSystemPrompt ?? snap.recalledCtx.systemPrompt, userText: input.hint || '主动搭话' });
+  captureLastPrompt(ctx, { source: 'proactive', bodyId, bodyType, driver: chatRes.driver, model: chatRes.model, systemPrompt: chatRes.usedSystemPrompt ?? snap.recalledCtx.systemPrompt, userText: input.hint || '主动搭话', usage: chatRes.usage });
 
   if (chatRes.toolFollowUpFailed) {
     return {

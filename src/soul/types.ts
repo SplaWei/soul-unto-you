@@ -332,6 +332,7 @@ export interface MemoryEngraveEvent {
 export interface RecallTrace {
   bodyId: string; bodyType: string; embeddingActive: boolean; embeddingModel?: string;
   rerankActive?: boolean; rerankModel?: string; rerankFallbackReason?: string;
+  retrievalMs?: number;
   engravedMemories?: MemoryEngraveEvent[];
   activeCommitments: Array<{ id: string; title: string; sourceBodyType: string; provenance: Provenance }>;
   activeFacts?: Array<{ id: string; seq: number; category?: string; fact: string; valid_from: string }>;
