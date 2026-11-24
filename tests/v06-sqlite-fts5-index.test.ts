@@ -6,7 +6,15 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { runJsonl10kBenchmark } from '../scripts/bench-jsonl-10k.ts';
 import { recordExperience } from '../src/memory/experience.ts';
-import { buildRecallContext, ensureMemoryIndex, recallMemories, searchMemoryIndex } from '../src/memory/search.ts';
+import {
+  BUILTIN_HYBRID_RETRIEVER,
+  buildRecallContext,
+  ensureMemoryIndex,
+  getMemoryIndexStatus,
+  recallMemories,
+  rebuildMemoryIndex,
+  searchMemoryIndex,
+} from '../src/memory/search.ts';
 import { addCoBecoming, addEpisode } from '../src/memory/store.ts';
 import { REPO_ROOT } from '../src/server/config.ts';
 import { createSoulHubServer } from '../src/server/main.ts';
@@ -215,4 +223,41 @@ test('A3-5 万级记忆 FTS5 检索耗时 < 50ms 与整轮 buildRecallContext �
   assert.equal(bench.topRecalledTitle, '星海天文台约定');
   assert.ok(bench.recall10kMs < 50, `万级 FTS5 检索目标 <50ms，实测 ${bench.recall10kMs}ms`);
   assert.ok(bench.buildRecallContext10kMs < 250, `万级整轮 buildRecallContext(reinforce:true) 实测应 <250ms，实际 ${bench.buildRecallContext10kMs}ms`);
+});
+
+test('A3-6 坏行可见报告（纯文本不变）与 rebuild 失败零 .tmp 残留校验', async () => {
+  const { dir } = makeSandbox('soul-a3-badline-');
+  const p = resolveArchivePaths(dir);
+  try {
+    addEpisode(dir, { bodyType: 'web', bodyId: 'web-1', title: '正常记忆', summary: '完整 JSON 行。' });
+    fs.appendFileSync(p.episodesJsonl, '{broken-json-line\n', 'utf8');
+    const rawBytesBefore = fs.readFileSync(p.episodesJsonl, 'utf8');
+
+    const rep = rebuildMemoryIndex(dir);
+    assert.equal(rep.skippedCount, 1);
+    assert.equal(rep.skippedLines[0]?.sourceFile, 'episodes.jsonl');
+    assert.equal(rep.skippedLines[0]?.lineNumber, 2);
+    assert.equal(fs.readFileSync(p.episodesJsonl, 'utf8'), rawBytesBefore, '重建绝不能改写纯文本');
+
+    const status = getMemoryIndexStatus(dir);
+    assert.equal(status.skippedCount, 1);
+    const health = await BUILTIN_HYBRID_RETRIEVER.health(dir);
+    assert.ok(health.detail?.includes('跳过 1 行') && health.detail?.includes('episodes.jsonl:2'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  const { dir: dirFail } = makeSandbox('soul-a3-failtmp-');
+  const pFail = resolveArchivePaths(dirFail);
+  try {
+    fs.rmSync(pFail.episodesJsonl, { force: true });
+    fs.mkdirSync(pFail.episodesJsonl);
+    assert.throws(() => rebuildMemoryIndex(dirFail));
+    const leftTmp = fs.existsSync(pFail.cache)
+      ? fs.readdirSync(pFail.cache).filter((n) => n.startsWith('.memory-index.tmp-'))
+      : [];
+    assert.deepEqual(leftTmp, [], 'rebuild 失败后 .cache 不得残留 .memory-index.tmp-* 文件');
+  } finally {
+    fs.rmSync(dirFail, { recursive: true, force: true });
+  }
 });

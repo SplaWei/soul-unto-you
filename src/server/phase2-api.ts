@@ -6,6 +6,7 @@ import path from 'node:path';
 import { checkConflictPorts } from '../../adapters/qq-onebot/guard.ts';
 import { DEFAULT_LOCAL_CONFIG_PATH, loadQqAdapterConfig } from '../../adapters/qq-onebot/main.ts';
 import type { QqAdapterConfig } from '../../adapters/qq-onebot/types.ts';
+import { getMemoryIndexStatus } from '../memory/search.ts';
 import { writeJsonAtomic } from '../soul/archive.ts';
 import { readJsonBody, sendJson, type SoulHubContext } from './body-api.ts';
 import { REPO_ROOT } from './config.ts';
@@ -225,6 +226,7 @@ export async function handlePhase2ApiRequest(
         qqRunning: manager.isQqRunning(), qqPid: manager.getQqPid(), qqLogs: manager.getQqLogs(),
         whitelistCount: { users: qqCfg.guard.allowedUsers.length, groups: qqCfg.guard.allowedGroups.length },
         autoDream: ctx.dreamScheduler?.getStatus() ?? null,
+        memoryIndex: getMemoryIndexStatus(ctx.config.archiveDir),
       });
       return true;
     }

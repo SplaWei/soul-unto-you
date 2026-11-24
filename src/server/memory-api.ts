@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { computeRetention, pinEpisodeById } from '../memory/retention.ts';
-import { BUILTIN_HYBRID_RETRIEVER, listMemoryRetrievers, type MemoryRetriever } from '../memory/search.ts';
+import { BUILTIN_HYBRID_RETRIEVER, getMemoryIndexStatus, listMemoryRetrievers, type MemoryRetriever } from '../memory/search.ts';
 import { addEpisode } from '../memory/store.ts';
 import { checkEmbeddingHealth, syncVectorIndexDetailed, type EmbeddingConfig } from '../memory/vector-store.ts';
 import { loadSoulArchive, readJsonSafe, resolveArchivePaths } from '../soul/archive.ts';
@@ -78,6 +78,7 @@ export async function handleMemoryHttpRoute(
       ok: true,
       active: { id: active.id, name: active.name, isExternal: Boolean(active.isExternal) },
       health,
+      memoryIndex: getMemoryIndexStatus(hub.config.archiveDir),
       registered: listMemoryRetrievers().map((r) => ({ id: r.id, name: r.name, isExternal: Boolean(r.isExternal) })),
     });
     return true;

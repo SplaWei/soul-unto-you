@@ -10,7 +10,13 @@ import {
   type TrackedMemoryFile,
 } from './sqlite-tokenizer.ts';
 
-export const INDEX_SCHEMA_VERSION = 1;
+export const INDEX_SCHEMA_VERSION = 2;
+
+export interface SkippedJsonlLine {
+  sourceFile: TrackedMemoryFile;
+  lineNumber: number;
+  reason: string;
+}
 
 export interface IndexedDocRow {
   docId: string;
@@ -39,6 +45,8 @@ export interface MemoryIndexSyncReport {
   rebuilt: boolean;
   syncedFiles: string[];
   totalDocs: number;
+  skippedCount: number;
+  skippedLines: SkippedJsonlLine[];
   dbPath: string;
 }
 
@@ -132,10 +140,14 @@ export function statAndHashFile(filePath: string, computeHash: boolean): FileSna
   return { exists: true, size: buf.length, mtimeMs, lineCount: countPhysicalLines(buf), sha256 };
 }
 
-function parseJsonlDocs(filePath: string, sourceFile: TrackedMemoryFile): IndexedMemoryDoc[] {
-  if (!fs.existsSync(filePath)) return [];
+function parseJsonlDocs(
+  filePath: string,
+  sourceFile: TrackedMemoryFile,
+): { docs: IndexedMemoryDoc[]; skippedLines: SkippedJsonlLine[] } {
+  if (!fs.existsSync(filePath)) return { docs: [], skippedLines: [] };
   const raw = fs.readFileSync(filePath, 'utf8');
   const docs: IndexedMemoryDoc[] = [];
+  const skippedLines: SkippedJsonlLine[] = [];
   let lineIndex = 0;
   for (let start = 0; start < raw.length;) {
     const nl = raw.indexOf('\n', start);
@@ -145,16 +157,25 @@ function parseJsonlDocs(filePath: string, sourceFile: TrackedMemoryFile): Indexe
     if (line) {
       try {
         const parsed = JSON.parse(line) as unknown;
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          skippedLines.push({ sourceFile, lineNumber: lineIndex, reason: 'JSON 行不是对象' });
+        } else {
           const doc = normalizeMemoryRow(sourceFile, parsed as Record<string, unknown>, lineIndex);
           if (doc) docs.push(doc);
+          else skippedLines.push({ sourceFile, lineNumber: lineIndex, reason: '记录规范化失败' });
         }
-      } catch {}
+      } catch (err) {
+        skippedLines.push({
+          sourceFile,
+          lineNumber: lineIndex,
+          reason: err instanceof Error ? err.message : 'JSON 解析失败',
+        });
+      }
     }
     if (nl < 0) break;
     start = nl + 1;
   }
-  return docs;
+  return { docs, skippedLines };
 }
 
 export function initIndexSchema(db: DatabaseSync): void {
@@ -165,7 +186,8 @@ export function initIndexSchema(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS index_meta (
       source_file TEXT PRIMARY KEY, schema_version INTEGER NOT NULL,
       file_size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL,
-      line_count INTEGER NOT NULL, sha256 TEXT NOT NULL, updated_at TEXT NOT NULL
+      line_count INTEGER NOT NULL, sha256 TEXT NOT NULL, updated_at TEXT NOT NULL,
+      skipped_count INTEGER NOT NULL DEFAULT 0, skipped_json TEXT NOT NULL DEFAULT '[]'
     );
     CREATE TABLE IF NOT EXISTS memory_docs (
       doc_id TEXT PRIMARY KEY, source_file TEXT NOT NULL, kind TEXT NOT NULL, seq INTEGER NOT NULL,
@@ -203,12 +225,37 @@ export function insertDocAndFts(
   insFts.run(res.lastInsertRowid, doc.docId, cols.bigrams, cols.unigrams);
 }
 
-export function writeMetaRow(db: DatabaseSync, sourceFile: TrackedMemoryFile, st: FileSnapshotStat): void {
+export function writeMetaRow(
+  db: DatabaseSync,
+  sourceFile: TrackedMemoryFile,
+  st: FileSnapshotStat,
+  skippedLines: SkippedJsonlLine[] = [],
+): void {
   db.prepare(`
     INSERT OR REPLACE INTO index_meta (
-      source_file, schema_version, file_size, mtime_ms, line_count, sha256, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(sourceFile, INDEX_SCHEMA_VERSION, st.size, st.mtimeMs, st.lineCount, st.sha256, new Date().toISOString());
+      source_file, schema_version, file_size, mtime_ms, line_count, sha256, updated_at, skipped_count, skipped_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    sourceFile, INDEX_SCHEMA_VERSION, st.size, st.mtimeMs, st.lineCount, st.sha256,
+    new Date().toISOString(), skippedLines.length, JSON.stringify(skippedLines.slice(0, 50)),
+  );
+}
+
+export function readSkippedSummary(db: DatabaseSync): { skippedCount: number; skippedLines: SkippedJsonlLine[] } {
+  const rows = db.prepare('SELECT skipped_count, skipped_json FROM index_meta')
+    .all() as unknown as Array<{ skipped_count?: number; skipped_json?: string }>;
+  let skippedCount = 0;
+  const skippedLines: SkippedJsonlLine[] = [];
+  for (const r of rows) {
+    skippedCount += Number(r.skipped_count ?? 0);
+    if (r.skipped_json) {
+      try {
+        const parsed = JSON.parse(r.skipped_json) as unknown;
+        if (Array.isArray(parsed)) skippedLines.push(...(parsed as SkippedJsonlLine[]));
+      } catch {}
+    }
+  }
+  return { skippedCount, skippedLines };
 }
 
 export function syncSourceFileInTx(
@@ -216,10 +263,13 @@ export function syncSourceFileInTx(
   dir: string,
   sourceFile: TrackedMemoryFile,
   preStat?: FileSnapshotStat,
-): void {
+): SkippedJsonlLine[] {
   const filePath = resolveTrackedFilePath(dir, sourceFile);
   const st = preStat && preStat.lineCount >= 0 ? preStat : statAndHashFile(filePath, true);
-  const docs = parseJsonlDocs(filePath, sourceFile);
+  const { docs, skippedLines } = parseJsonlDocs(filePath, sourceFile);
+  if (skippedLines.length > 0) {
+    console.warn(`[soul-index] 跳过损坏 JSONL 行: ${skippedLines.map((s) => `${s.sourceFile}:${s.lineNumber}`).join(', ')}`);
+  }
 
   db.prepare('DELETE FROM memory_fts WHERE rowid IN (SELECT rowid FROM memory_docs WHERE source_file = ?)').run(sourceFile);
   db.prepare('DELETE FROM memory_docs WHERE source_file = ?').run(sourceFile);
@@ -232,5 +282,6 @@ export function syncSourceFileInTx(
   `);
   const insFts = db.prepare('INSERT INTO memory_fts (rowid, doc_id, bigrams, unigrams) VALUES (?, ?, ?, ?)');
   for (const doc of docs) insertDocAndFts(insDoc, insFts, doc);
-  writeMetaRow(db, sourceFile, st);
+  writeMetaRow(db, sourceFile, st, skippedLines);
+  return skippedLines;
 }

@@ -10,6 +10,7 @@ import {
   insertDocAndFts,
   isCorruptSqliteError,
   openIndexDb,
+  readSkippedSummary,
   removeDbAndSidecars,
   renameWithRetry,
   resolveTrackedFilePath,
@@ -22,6 +23,7 @@ import {
   type MemoryIndexSearchResult,
   type MemoryIndexSyncReport,
   type MetaDbRow,
+  type SkippedJsonlLine,
 } from './sqlite-schema.ts';
 import {
   TRACKED_MEMORY_FILES,
@@ -36,6 +38,7 @@ export {
   type IndexedFtsHit,
   type MemoryIndexSearchResult,
   type MemoryIndexSyncReport,
+  type SkippedJsonlLine,
 };
 
 function runInImmediateTx(db: DatabaseSync, fn: () => void): void {
@@ -49,39 +52,45 @@ function runInImmediateTx(db: DatabaseSync, fn: () => void): void {
   }
 }
 
-/** 从纯文本 MEMORIES/*.jsonl 100% 无损重建 .cache/memory-index.sqlite（原子替换）。 */
+/** 从纯文本 MEMORIES/*.jsonl 100% 无损重建 .cache/memory-index.sqlite（原子替换，失败零 tmp 残留）。 */
 export function rebuildMemoryIndex(dir: string): MemoryIndexSyncReport {
   const p = resolveArchivePaths(dir);
   fs.mkdirSync(p.cache, { recursive: true });
   const tmp = path.join(p.cache, `.memory-index.tmp-${process.pid}-${crypto.randomUUID().slice(0, 8)}.sqlite`);
-  const db = new DatabaseSync(tmp);
+  let db: DatabaseSync | null = null;
   let totalDocs = 0;
+  const skippedLines: SkippedJsonlLine[] = [];
   try {
+    db = new DatabaseSync(tmp);
     initIndexSchema(db);
     runInImmediateTx(db, () => {
-      for (const sourceFile of TRACKED_MEMORY_FILES) syncSourceFileInTx(db, dir, sourceFile);
+      for (const sourceFile of TRACKED_MEMORY_FILES) {
+        skippedLines.push(...syncSourceFileInTx(db!, dir, sourceFile));
+      }
     });
     const row = db.prepare('SELECT COUNT(*) AS cnt FROM memory_docs').get() as { cnt?: number } | undefined;
     totalDocs = Number(row?.cnt ?? 0);
-  } finally {
-    try { db.close(); } catch {}
-  }
-  try {
+    db.close();
+    db = null;
     removeDbAndSidecars(p.memoryIndexDb);
     renameWithRetry(tmp, p.memoryIndexDb);
     for (const suffix of ['-wal', '-shm', '-journal']) fs.rmSync(`${tmp}${suffix}`, { force: true });
   } catch (err) {
+    try { db?.close(); } catch {}
     removeDbAndSidecars(tmp);
     throw err;
   }
-  return { ok: true, rebuilt: true, syncedFiles: [...TRACKED_MEMORY_FILES], totalDocs, dbPath: p.memoryIndexDb };
+  return {
+    ok: true, rebuilt: true, syncedFiles: [...TRACKED_MEMORY_FILES],
+    totalDocs, skippedCount: skippedLines.length, skippedLines, dbPath: p.memoryIndexDb,
+  };
 }
 
 /** 校验索引完整性与纯文本一致性；缺失或损坏时静默无损重建。 */
 export function ensureMemoryIndex(dir: string, options: { verifyHash?: boolean } = {}): MemoryIndexSyncReport {
   const p = resolveArchivePaths(dir);
   if (!fs.existsSync(p.root)) {
-    return { ok: true, rebuilt: false, syncedFiles: [], totalDocs: 0, dbPath: p.memoryIndexDb };
+    return { ok: true, rebuilt: false, syncedFiles: [], totalDocs: 0, skippedCount: 0, skippedLines: [], dbPath: p.memoryIndexDb };
   }
   if (!fs.existsSync(p.memoryIndexDb)) return rebuildMemoryIndex(dir);
 
@@ -122,9 +131,10 @@ export function ensureMemoryIndex(dir: string, options: { verifyHash?: boolean }
       });
     }
     const row = db.prepare('SELECT COUNT(*) AS cnt FROM memory_docs').get() as { cnt?: number } | undefined;
+    const { skippedCount, skippedLines } = readSkippedSummary(db);
     return {
       ok: true, rebuilt: false, syncedFiles: dirty.map((d) => d.file),
-      totalDocs: Number(row?.cnt ?? 0), dbPath: p.memoryIndexDb,
+      totalDocs: Number(row?.cnt ?? 0), skippedCount, skippedLines, dbPath: p.memoryIndexDb,
     };
   } catch (err) {
     if (isCorruptSqliteError(err)) {
@@ -238,16 +248,23 @@ export function syncMemoryIndexFile(dir: string, sourceFile: TrackedMemoryFile):
   }
 }
 
-export function getMemoryIndexStatus(dir: string): { exists: boolean; dbPath: string; docCount: number } {
+export function getMemoryIndexStatus(dir: string): {
+  exists: boolean; dbPath: string; docCount: number; skippedCount: number; skippedLines: SkippedJsonlLine[];
+} {
   const p = resolveArchivePaths(dir);
-  if (!fs.existsSync(p.memoryIndexDb)) return { exists: false, dbPath: p.memoryIndexDb, docCount: 0 };
+  if (!fs.existsSync(p.memoryIndexDb)) {
+    return { exists: false, dbPath: p.memoryIndexDb, docCount: 0, skippedCount: 0, skippedLines: [] };
+  }
   let db: DatabaseSync | null = null;
   try {
     db = openIndexDb(p.memoryIndexDb);
     const row = db.prepare('SELECT COUNT(*) AS cnt FROM memory_docs').get() as { cnt?: number } | undefined;
-    return { exists: true, dbPath: p.memoryIndexDb, docCount: Number(row?.cnt ?? 0) };
+    const { skippedCount, skippedLines } = readSkippedSummary(db);
+    return { exists: true, dbPath: p.memoryIndexDb, docCount: Number(row?.cnt ?? 0), skippedCount, skippedLines };
   } catch (err) {
-    if (isCorruptSqliteError(err)) return { exists: false, dbPath: p.memoryIndexDb, docCount: 0 };
+    if (isCorruptSqliteError(err)) {
+      return { exists: false, dbPath: p.memoryIndexDb, docCount: 0, skippedCount: 0, skippedLines: [] };
+    }
     throw err;
   } finally {
     try { db?.close(); } catch {}

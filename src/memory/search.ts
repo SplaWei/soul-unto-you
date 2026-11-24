@@ -26,6 +26,7 @@ import {
 import {
   ensureMemoryIndex, getMemoryIndexStatus, rebuildMemoryIndex, searchMemoryIndex,
   type IndexedDocRow, type IndexedFtsHit, type MemoryIndexSearchResult, type MemoryIndexSyncReport,
+  type SkippedJsonlLine,
 } from './sqlite-index.ts';
 
 export {
@@ -37,7 +38,7 @@ export {
   type EmbeddingConfig, type EmbeddingHealthReport, type IndexedDocRow, type IndexedFtsHit,
   type MemoryIndexSearchResult, type MemoryIndexSyncReport, type MemoryRetrievalRequest,
   type MemoryRetrievalResult, type MemoryRetriever, type MemoryRetrieverHealth,
-  type RecallTrace, type RecalledItem, type RetrieverConfig, type VectorSyncReport,
+  type RecallTrace, type RecalledItem, type RetrieverConfig, type SkippedJsonlLine, type VectorSyncReport,
 };
 
 function formatCurrentClock(nowMs: number): string {

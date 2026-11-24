@@ -134,7 +134,10 @@ export class BuiltinHybridRetriever implements MemoryRetriever {
 
   async health(archiveDir: string, options?: { embedding?: EmbeddingConfig }): Promise<MemoryRetrieverHealth> {
     const fts = getMemoryIndexStatus(archiveDir);
-    const ftsNote = fts.exists ? `SQLite FTS5 就绪(${fts.docCount}条)` : 'SQLite FTS5 待按需重建';
+    const skipNote = fts.skippedCount > 0
+      ? `（跳过 ${fts.skippedCount} 行: ${fts.skippedLines.slice(0, 3).map((s) => `${s.sourceFile}:${s.lineNumber}`).join(', ')}）`
+      : '';
+    const ftsNote = fts.exists ? `SQLite FTS5 就绪(${fts.docCount}条)${skipNote}` : 'SQLite FTS5 待按需重建';
     if (!options?.embedding?.enabled) {
       return { ok: true, retrieverId: this.id, name: this.name, detail: `${ftsNote} · 词法+艾宾浩斯常驻就绪（向量增强未开启）` };
     }
