@@ -39,6 +39,7 @@ export function resolveArchivePaths(dir: string) {
     coBecoming: path.join(memories, 'co-becoming.jsonl'),
     experiences: path.join(memories, 'experiences.jsonl'),
     beliefs: path.join(memories, 'beliefs.jsonl'),
+    facts: path.join(memories, 'facts.jsonl'),
     selfEvolution: path.join(memories, 'self-evolution.jsonl'),
     innerLife,
     drives: path.join(innerLife, 'drives.json'),
@@ -240,7 +241,7 @@ function scanMaxSeqAndProvenance(dir: string): { maxSeq: number; prov: Record<Pr
   const p = resolveArchivePaths(dir);
   let maxSeq = 0;
   const prov: Record<Provenance, number> = { verified: 0, inferred: 0, oral: 0 };
-  const jsonlFiles = [p.journal, p.episodesJsonl, p.coBecoming, p.experiences, p.beliefs, p.selfEvolution, p.diary];
+  const jsonlFiles = [p.journal, p.episodesJsonl, p.coBecoming, p.experiences, p.beliefs, p.facts, p.selfEvolution, p.diary];
   for (const fp of jsonlFiles) {
     for (const row of readJsonlSafe<{ seq?: unknown; provenance?: unknown }>(fp)) {
       if (typeof row.seq === 'number' && Number.isInteger(row.seq) && row.seq > maxSeq) maxSeq = row.seq;

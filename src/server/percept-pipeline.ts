@@ -8,8 +8,9 @@ import type { BodyType, ModalityPacket, SoulActionIntent } from '../soul/types.t
 import type { SoulHubContext } from './body-api.ts';
 import { detectSystemNoise } from './noise-filter.ts';
 import {
-  captureLastPrompt, collectAvailableActions, collectImages, dispatchRemoteActions,
-  filterAuthorizedActions, prepareRetrievalOutsideLock, recordObserveInArchive, scheduleDebouncedVectorSync,
+  buildRecallRetrievalParams, captureLastPrompt, collectAvailableActions, collectImages,
+  dispatchRemoteActions, filterAuthorizedActions, prepareRetrievalOutsideLock,
+  recordObserveInArchive, scheduleDebouncedVectorSync,
 } from './percept-helpers.ts';
 
 export interface PerceptInput {
@@ -65,7 +66,7 @@ export async function processPercept(ctx: SoulHubContext, input: PerceptInput) {
     const sameDir = activeDir === prefetchDir;
     const recalledCtx = await buildRecallContext({
       archiveDir: activeDir, query: text, bodyId, bodyType, presence: ctx.presence.getState(),
-      bodyRegistration: bodyReg, embedding: ctx.config.embedding, retriever: ctx.retriever, activePerson, experimental: expCfg,
+      bodyRegistration: bodyReg, activePerson, ...buildRecallRetrievalParams(ctx),
       queryVec: sameDir ? prepared.queryVec : null,
       vectorMap: sameDir ? prepared.vectorMap : null,
       ...(sameDir && prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}),
@@ -215,7 +216,7 @@ export async function processObserve(ctx: SoulHubContext, input: ObserveInput) {
     // 先召回后落盘当前观察目击，避免同一条观察在同一轮 prompt 里出现三次。
     const recalledCtx = await buildRecallContext({
       archiveDir: activeDir, query: summary, bodyId, bodyType, presence: ctx.presence.getState(),
-      bodyRegistration: bodyReg, embedding: ctx.config.embedding, retriever: ctx.retriever, experimental: expCfg,
+      bodyRegistration: bodyReg, ...buildRecallRetrievalParams(ctx),
       queryVec: sameDir ? prepared.queryVec : null,
       vectorMap: sameDir ? prepared.vectorMap : null,
       ...(sameDir && prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}),
@@ -316,7 +317,7 @@ async function executeProactive(
     const sameDir = activeDir === prefetchDir;
     const recalledCtx = await buildRecallContext({
       archiveDir: activeDir, query, bodyId, bodyType, presence: ctx.presence.getState(),
-      bodyRegistration: bodyReg, embedding: ctx.config.embedding, retriever: ctx.retriever, experimental: expCfg,
+      bodyRegistration: bodyReg, ...buildRecallRetrievalParams(ctx),
       queryVec: sameDir ? prepared.queryVec : null,
       vectorMap: sameDir ? prepared.vectorMap : null,
       ...(sameDir && prepared.precomputedRetrieval ? { precomputedRetrieval: prepared.precomputedRetrieval } : {}),

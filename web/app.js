@@ -133,6 +133,7 @@ async function refreshConfigAndSockets({ preserveInputs = false } = {}) {
     $('cfgEmbedEnabled').checked = Boolean(c.embedding?.enabled);
     $('cfgEmbedUrl').value = c.embedding?.endpoint || '';
     $('cfgEmbedModel').value = c.embedding?.model || '';
+    window.SoulMemoryConfig?.populate(c);
     $('cfgVoiceEnabled').checked = Boolean(c.voice?.enabled);
     $('cfgVoiceUrl').value = c.voice?.baseUrl || '';
     $('cfgDreamEnabled').checked = c.dream?.enabled !== false;
@@ -331,7 +332,8 @@ $('configForm').addEventListener('submit', async (e) => {
   const res = await api('/api/config', 'POST', {
     archiveDir: $('cfgArchiveDir').value.trim(),
     llm: { chat: { driver: $('cfgDriver').value, model: $('cfgModel').value.trim(), fallbackModels: $('cfgFallbackModels').value.split(',').map((s) => s.trim()).filter(Boolean), baseUrl: $('cfgBaseUrl').value.trim(), apiKey: $('cfgApiKey').value.trim(), projectId: $('cfgProjectId').value.trim(), location: $('cfgLocation').value.trim() || 'us-central1' } },
-    embedding: { enabled: $('cfgEmbedEnabled').checked, endpoint: $('cfgEmbedUrl').value.trim(), model: $('cfgEmbedModel').value.trim() },
+    embedding: readFormEmbeddingCfg(),
+    rerank: window.SoulMemoryConfig?.readRerankPatch(),
     voice: { enabled: $('cfgVoiceEnabled').checked, driver: 'gsv', baseUrl: $('cfgVoiceUrl').value.trim() },
     dream: { enabled: $('cfgDreamEnabled').checked, idleMinutes: Math.max(0, Number($('cfgDreamIdleMin').value) || 0), minPendingEntries: Math.max(1, Math.floor(Number($('cfgDreamMinPending').value) || 1)) },
     experimental: Object.fromEntries(EXP_MAP.map(([id, k]) => [k, Boolean($(id)?.checked)])),
@@ -339,16 +341,13 @@ $('configForm').addEventListener('submit', async (e) => {
   $('cfgSaveMsg').textContent = res.ok ? tra('app.cfgSaved', '已保存 ✓') : tra('app.failed', `失败: ${res.error}`, { err: res.error });
   await Promise.all([refreshConfigAndSockets(), refreshArchive()]);
 });
-
-const readFormEmbeddingCfg = () => ({ enabled: Boolean($('cfgEmbedEnabled').checked), endpoint: $('cfgEmbedUrl').value.trim(), model: $('cfgEmbedModel').value.trim() });
+const readFormEmbeddingCfg = () => ({ enabled: Boolean($('cfgEmbedEnabled').checked), endpoint: $('cfgEmbedUrl').value.trim(), model: $('cfgEmbedModel').value.trim(), ...(window.SoulMemoryConfig?.readEmbeddingPatch() || {}) });
 const EXP_MAP = [['cfgExpEmotion', 'enableEmotion'], ['cfgExpInnerLife', 'enableInnerLife'], ['cfgExpFreeWill', 'enableFreeWill'], ['cfgExpHeartbeat', 'enableHeartbeat'], ['cfgExpResurrection', 'enableResurrection']];
-
 $('btnTestEmbed')?.addEventListener('click', async () => {
   $('embedHealthBox').textContent = tra('app.probing', '探测中…');
   const res = await api('/api/embedding/health', 'POST', { ...readFormEmbeddingCfg(), enabled: true });
   $('embedHealthBox').textContent = tra('app.embedStatus', `${res.detail || tra('app.probeDone', '检测完成')} · 已索引向量 ${res.totalVectors ?? 0} 条`, { detail: res.detail || tra('app.probeDone', '检测完成'), count: res.totalVectors ?? 0 });
 });
-
 $('btnSyncEmbed')?.addEventListener('click', async () => {
   $('embedHealthBox').textContent = tra('app.syncing', '同步索引中…');
   const wasChecked = Boolean($('cfgEmbedEnabled').checked);
@@ -360,8 +359,8 @@ $('btnSyncEmbed')?.addEventListener('click', async () => {
     ? tra('app.syncOk', `同步完成：本次新增 ${res.indexed} 条（情景 ${res.episodesIndexed} + 体验 ${res.experiencesIndexed}），共 ${res.totalVectors} 条向量${hint}`, { n: res.indexed, ep: res.episodesIndexed, ex: res.experiencesIndexed, total: res.totalVectors, hint })
     : tra('app.syncFail', `未同步（${reason}，已自动保留关键词检索）`, { reason });
 });
-
 (async () => {
+  window.SoulMemoryConfig?.init();
   window.SoulI18n?.onChange(() => {
     syncOralQuestionLabels();
     void refreshArchive({ preserveInputs: true });

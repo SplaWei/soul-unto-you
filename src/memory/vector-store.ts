@@ -1,5 +1,6 @@
 import { readJsonSafe, readJsonlSafe, resolveArchivePaths, writeJsonAtomic } from '../soul/archive.ts';
 import type { LivedExperience, MemoryEpisode } from '../soul/types.ts';
+import { isLoopbackEndpointUrl, isValidHttpEndpointUrl } from './reranker.ts';
 
 export interface EmbeddingConfig {
   enabled: boolean;
@@ -7,6 +8,7 @@ export interface EmbeddingConfig {
   model: string;
   apiKey?: string;
   timeoutMs?: number;
+  dimensions?: number;
 }
 
 export interface VectorIndexFile {
@@ -20,9 +22,11 @@ export interface VectorSyncReport {
   indexed: number;
   episodesIndexed: number;
   experiencesIndexed: number;
+  factsIndexed?: number;
   totalVectors: number;
   model: string;
   fallbackReason?: string;
+  errorDetail?: string;
 }
 
 export interface EmbeddingHealthReport {
@@ -33,6 +37,21 @@ export interface EmbeddingHealthReport {
   dimensions?: number;
   latencyMs: number;
   detail: string;
+  fallbackReason?: string;
+}
+
+export type EmbeddingFallbackReason =
+  | 'disabled'
+  | 'missing_api_key'
+  | 'invalid_endpoint'
+  | 'http_error'
+  | 'unreachable'
+  | 'invalid_response';
+
+export interface FetchEmbeddingsResult {
+  vectors: number[][] | null;
+  fallbackReason?: EmbeddingFallbackReason;
+  detail?: string;
 }
 
 /** 计算两个向量的余弦相似度，结果限制在 [0, 1]。 */
@@ -50,9 +69,67 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return denom > 0 ? Math.max(0, Math.min(1, dot / denom)) : 0;
 }
 
-function buildEmbeddingsUrl(endpoint: string): string {
-  const base = endpoint.replace(/\/+$/, '').replace(/\/embeddings$/, '');
+export function buildEmbeddingsUrl(endpoint: string): string {
+  const base = String(endpoint || '').trim().replace(/\/+$/, '');
+  if (!base) return '';
+  if (/\/embeddings$/i.test(base)) return base;
   return base.endsWith('/v1') ? `${base}/embeddings` : `${base}/v1/embeddings`;
+}
+
+/** 调用 OpenAI 兼容 /v1/embeddings 接口获取向量，返回详细降级原因而不阻塞主流程。 */
+export async function fetchEmbeddingsDetailed(
+  texts: string[],
+  cfg?: EmbeddingConfig,
+): Promise<FetchEmbeddingsResult> {
+  if (!cfg?.enabled || !cfg.endpoint?.trim() || !cfg.model || !texts.length) {
+    return { vectors: null, fallbackReason: 'disabled', detail: '尚未开启向量检索' };
+  }
+  if (!isValidHttpEndpointUrl(cfg.endpoint)) {
+    return { vectors: null, fallbackReason: 'invalid_endpoint', detail: 'Embedding 端点 URL 非法，已回退离线 FTS5 检索' };
+  }
+  if (!isLoopbackEndpointUrl(cfg.endpoint) && !cfg.apiKey?.trim()) {
+    return {
+      vectors: null,
+      fallbackReason: 'missing_api_key',
+      detail: '云端向量服务未配置 API Key，已自动无缝回退至离线 SQLite FTS5 检索',
+    };
+  }
+  const url = buildEmbeddingsUrl(cfg.endpoint);
+  const payload: Record<string, unknown> = { model: cfg.model, input: texts };
+  if (cfg.dimensions && Number.isFinite(cfg.dimensions) && cfg.dimensions > 0) {
+    payload.dimensions = Math.round(cfg.dimensions);
+  }
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(cfg.apiKey?.trim() ? { Authorization: `Bearer ${cfg.apiKey.trim()}` } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(cfg.timeoutMs ?? 8000),
+    });
+    if (!res.ok) {
+      const detail = `Embedding HTTP ${res.status}`;
+      console.warn(`[soul-vector] ${detail} (${cfg.model})，已自动降级关键词检索`);
+      return { vectors: null, fallbackReason: 'http_error', detail };
+    }
+    const data = (await res.json()) as { data?: Array<{ index?: number; embedding?: number[] }> };
+    if (!Array.isArray(data?.data) || data.data.length !== texts.length) {
+      return { vectors: null, fallbackReason: 'invalid_response', detail: 'Embedding 响应条数与输入不匹配' };
+    }
+    const vectors = data.data
+      .slice()
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+      .map((row) => (Array.isArray(row.embedding) ? row.embedding : []));
+    return vectors.some((v) => v.length > 0)
+      ? { vectors }
+      : { vectors: null, fallbackReason: 'invalid_response', detail: 'Embedding 返回空向量' };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[soul-vector] 向量服务不可达 (${cfg.model}): ${msg}`);
+    return { vectors: null, fallbackReason: 'unreachable', detail: `向量服务不可达: ${msg}` };
+  }
 }
 
 /** 调用 OpenAI 兼容 /v1/embeddings 接口获取向量，不可达时静默返回 null。 */
@@ -60,29 +137,7 @@ export async function fetchEmbeddings(
   texts: string[],
   cfg?: EmbeddingConfig,
 ): Promise<number[][] | null> {
-  if (!cfg?.enabled || !cfg.endpoint || !cfg.model || !texts.length) return null;
-  const url = buildEmbeddingsUrl(cfg.endpoint);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}),
-      },
-      body: JSON.stringify({ model: cfg.model, input: texts }),
-      signal: AbortSignal.timeout(cfg.timeoutMs ?? 8000),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { data?: Array<{ index?: number; embedding?: number[] }> };
-    if (!Array.isArray(data?.data) || data.data.length !== texts.length) return null;
-    const vectors = data.data
-      .slice()
-      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
-      .map((row) => (Array.isArray(row.embedding) ? row.embedding : []));
-    return vectors.some((v) => v.length > 0) ? vectors : null;
-  } catch {
-    return null;
-  }
+  return (await fetchEmbeddingsDetailed(texts, cfg)).vectors;
 }
 
 /** 探测本地或远程向量服务连通性，绝不抛错阻塞主流程。 */
@@ -96,14 +151,15 @@ export async function checkEmbeddingHealth(cfg?: EmbeddingConfig): Promise<Embed
       endpoint,
       model,
       latencyMs: 0,
+      fallbackReason: 'disabled',
       detail: '尚未开启千问向量检索（当前使用零依赖关键词检索）',
     };
   }
   const startedAt = Date.now();
   const timeoutMs = cfg.timeoutMs ?? 15000;
-  const vecs = await fetchEmbeddings(['灵魂记忆语义连通性检测'], { ...cfg, timeoutMs });
+  const res = await fetchEmbeddingsDetailed(['灵魂记忆语义连通性检测'], { ...cfg, timeoutMs });
   const latencyMs = Date.now() - startedAt;
-  const dim = vecs?.[0]?.length ?? 0;
+  const dim = res.vectors?.[0]?.length ?? 0;
   if (dim > 0) {
     return {
       ok: true,
@@ -121,7 +177,10 @@ export async function checkEmbeddingHealth(cfg?: EmbeddingConfig): Promise<Embed
     endpoint,
     model,
     latencyMs,
-    detail: '本地向量服务未连通（已自动静默降级为关键词检索）',
+    fallbackReason: res.fallbackReason ?? 'unreachable',
+    detail: res.fallbackReason === 'missing_api_key'
+      ? (res.detail || '云端向量服务未配置 API Key，已自动无缝回退至离线 SQLite FTS5 检索')
+      : (res.detail ? `本地/云端向量服务未连通（已自动降级 FTS5 检索: ${res.detail}）` : '本地向量服务未连通（已自动静默降级为关键词检索）'),
   };
 }
 
@@ -177,7 +236,13 @@ async function runSyncVectorIndex(
   const p = resolveArchivePaths(dir);
   const episodes = readJsonlSafe<MemoryEpisode>(p.episodesJsonl);
   const experiences = readJsonlSafe<LivedExperience>(p.experiences);
-  const validIds = new Set([...episodes.map((e) => e.id), ...experiences.map((e) => e.id)]);
+  const activeFacts = readJsonlSafe<{ id?: string; fact?: string; category?: string; status?: string }>(p.facts)
+    .filter((f) => f.id && f.fact && f.status === 'active');
+  const validIds = new Set([
+    ...episodes.map((e) => e.id),
+    ...experiences.map((e) => e.id),
+    ...activeFacts.map((f) => f.id as string),
+  ]);
 
   const existing = readJsonSafe<VectorIndexFile>(p.vectors, { model, items: {}, updatedAt: '' });
   const sameModel = existing.model === model && Boolean(existing.items);
@@ -189,7 +254,7 @@ async function runSyncVectorIndex(
   }
   const pruned = sameModel && Object.keys(items).length !== Object.keys(existing.items).length;
 
-  const missing: Array<{ kind: 'episode' | 'experience'; id: string; text: string }> = [];
+  const missing: Array<{ kind: 'episode' | 'experience' | 'fact'; id: string; text: string }> = [];
   for (const ep of episodes) {
     if (!items[ep.id]) {
       const tags = ep.tags?.length ? `\n${ep.tags.join(' ')}` : '';
@@ -202,65 +267,65 @@ async function runSyncVectorIndex(
       missing.push({ kind: 'experience', id: exp.id, text: `${exp.stimulus}\n${exp.realityOutcome}\n${exp.lesson}${tags}` });
     }
   }
+  for (const f of activeFacts) {
+    const fid = f.id as string;
+    if (!items[fid]) {
+      missing.push({ kind: 'fact', id: fid, text: f.category ? `${f.category}: ${f.fact}` : String(f.fact) });
+    }
+  }
 
   const batch = missing.slice(0, options.maxItems ?? 64);
   if (!batch.length) {
     if (pruned) {
       if (options.shouldAbort?.()) {
-    return { ok: false, indexed: 0, episodesIndexed: 0, experiencesIndexed: 0, totalVectors: Object.keys(items).length, model, fallbackReason: 'aborted' };
-  }
-  writeJsonAtomic(p.vectors, { model, items, updatedAt: new Date().toISOString() });
+        return { ok: false, indexed: 0, episodesIndexed: 0, experiencesIndexed: 0, factsIndexed: 0, totalVectors: Object.keys(items).length, model, fallbackReason: 'aborted' };
+      }
+      writeJsonAtomic(p.vectors, { model, items, updatedAt: new Date().toISOString() });
     }
     return {
-      ok: true,
-      indexed: 0,
-      episodesIndexed: 0,
-      experiencesIndexed: 0,
-      totalVectors: Object.keys(items).length,
-      model,
+      ok: true, indexed: 0, episodesIndexed: 0, experiencesIndexed: 0, factsIndexed: 0,
+      totalVectors: Object.keys(items).length, model,
     };
   }
 
   let episodesIndexed = 0;
   let experiencesIndexed = 0;
-  for (let offset = 0; offset < batch.length; offset += 32) {
-    const chunk = batch.slice(offset, offset + 32);
-    const vectors = await fetchEmbeddings(chunk.map((c) => c.text), cfg);
-    if (!vectors) {
-      if (episodesIndexed + experiencesIndexed === 0) {
+  let factsIndexed = 0;
+  let lastFail: { reason?: string; detail?: string } = {};
+  for (let offset = 0; offset < batch.length; offset += 10) {
+    const chunk = batch.slice(offset, offset + 10);
+    const res = await fetchEmbeddingsDetailed(chunk.map((c) => c.text), cfg);
+    if (!res.vectors) {
+      lastFail = { reason: res.fallbackReason, detail: res.detail };
+      if (episodesIndexed + experiencesIndexed + factsIndexed === 0) {
         return {
-          ok: false,
-          indexed: 0,
-          episodesIndexed: 0,
-          experiencesIndexed: 0,
-          totalVectors: Object.keys(items).length,
-          model,
-          fallbackReason: 'unreachable',
+          ok: false, indexed: 0, episodesIndexed: 0, experiencesIndexed: 0, factsIndexed: 0,
+          totalVectors: Object.keys(items).length, model,
+          fallbackReason: res.fallbackReason ?? 'unreachable',
+          ...(res.detail ? { errorDetail: res.detail } : {}),
         };
       }
       break;
     }
     chunk.forEach((entry, i) => {
-      if (vectors[i]?.length) {
-        items[entry.id] = vectors[i];
+      if (res.vectors?.[i]?.length) {
+        items[entry.id] = res.vectors[i];
         if (entry.kind === 'episode') episodesIndexed += 1;
-        else experiencesIndexed += 1;
+        else if (entry.kind === 'experience') experiencesIndexed += 1;
+        else factsIndexed += 1;
       }
     });
   }
 
   if (options.shouldAbort?.()) {
-    return { ok: false, indexed: 0, episodesIndexed: 0, experiencesIndexed: 0, totalVectors: Object.keys(items).length, model, fallbackReason: 'aborted' };
+    return { ok: false, indexed: 0, episodesIndexed: 0, experiencesIndexed: 0, factsIndexed: 0, totalVectors: Object.keys(items).length, model, fallbackReason: 'aborted' };
   }
   writeJsonAtomic(p.vectors, { model, items, updatedAt: new Date().toISOString() });
-  const indexed = episodesIndexed + experiencesIndexed;
+  const indexed = episodesIndexed + experiencesIndexed + factsIndexed;
   return {
-    ok: true,
-    indexed,
-    episodesIndexed,
-    experiencesIndexed,
-    totalVectors: Object.keys(items).length,
-    model,
+    ok: true, indexed, episodesIndexed, experiencesIndexed, factsIndexed,
+    totalVectors: Object.keys(items).length, model,
+    ...(lastFail.reason ? { fallbackReason: lastFail.reason, errorDetail: lastFail.detail } : {}),
   };
 }
 

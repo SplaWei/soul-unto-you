@@ -13,6 +13,7 @@ const PUBLIC_STATIC_PATHS = new Set([
   '/workspace.js',
   '/inner-life.js',
   '/phase2.js',
+  '/memory-config.js',
   '/cosmos.js',
   '/i18n-en.js',
   '/i18n.js',

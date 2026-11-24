@@ -7,7 +7,7 @@ import { cosineSimilarity } from './vector-store.ts';
 
 export interface RecalledItem {
   id?: string;
-  kind: 'episode' | 'journal';
+  kind: 'episode' | 'journal' | 'fact';
   seq: number;
   score: number;
   bodyType: BodyType;
@@ -21,6 +21,7 @@ export interface RecalledItem {
   mentionCount: number;
   semanticSim: number;
   lexicalSim: number;
+  rerankScore?: number;
   userPinned?: boolean;
   selfImportant?: boolean;
   recallReason: string;
@@ -68,7 +69,7 @@ export function scoreIndexedMemoryCandidates(params: {
     if (!merged.has(ep.docId)) merged.set(ep.docId, { row: ep });
   }
   for (const doc of indexRes.extraDocs) {
-    if ((doc.kind === 'episode' || doc.kind === 'journal') && doc.status === 'active' && !merged.has(doc.docId)) {
+    if ((doc.kind === 'episode' || doc.kind === 'journal' || doc.kind === 'fact') && doc.status === 'active' && !merged.has(doc.docId)) {
       merged.set(doc.docId, { row: doc });
     }
   }
@@ -77,6 +78,22 @@ export function scoreIndexedMemoryCandidates(params: {
   for (const { row, matchedBy } of merged.values()) {
     const meta = parseDocMeta(row.metaJson);
     const provenance = normalizeProvenance(row.provenance);
+    if (row.kind === 'fact' && row.status === 'active') {
+      const factId = typeof meta.id === 'string' && meta.id ? meta.id : row.docId.replace(/^fact:/, '');
+      const lex = calcLexScore(queryTokens, indexRes.queryUnigrams, `${row.title} ${row.text}`, matchedBy);
+      const vec = queryVec && vectorMap?.[factId] ? cosineSimilarity(queryVec, vectorMap[factId]) : 0;
+      if (lex <= 0 && vec < 0.3) continue;
+      const score = ((queryVec ? 0.62 * vec + 0.28 * lex : 0.72 * lex) + 0.22) * provenanceWeight(provenance);
+      const { recallReason, channels } = describeRecallReasons({ semanticSim: vec, lexicalSim: lex });
+      candidates.push({
+        id: factId, kind: 'fact', seq: row.seq, score, bodyType: row.bodyType, provenance,
+        timestamp: row.timestamp, title: `事实:${row.title || 'fact'}`, text: row.text,
+        retentionPct: 100, strength: 365, recallCount: 0, mentionCount: 1,
+        semanticSim: Number(vec.toFixed(3)), lexicalSim: Number(lex.toFixed(3)),
+        recallReason: `有效长期事实 · ${recallReason}`, recallChannels: channels,
+      });
+      continue;
+    }
     if (row.kind === 'episode') {
       const epId = typeof meta.id === 'string' && meta.id ? meta.id : row.docId.replace(/^episode:/, '');
       const importance = numOr(meta.importance, 65);

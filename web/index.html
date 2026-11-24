@@ -298,6 +298,7 @@
               <label class="field">Embedding 端点 <input id="cfgEmbedUrl" type="text"></label>
               <label class="field">Embedding 模型 <input id="cfgEmbedModel" type="text"></label>
               <div class="row-gap" style="margin:6px 0 8px;"><button class="btn small" id="btnTestEmbed" type="button">探测向量服务</button><button class="btn small" id="btnSyncEmbed" type="button">同步增量向量索引</button><span class="muted" id="embedHealthBox">检测中…</span></div>
+              <div id="cfgRerankBox"></div>
               <label><input id="cfgVoiceEnabled" type="checkbox"> 启用本地声带接口（GPT-SoVITS 8765）</label>
               <label class="field">声带服务地址 <input id="cfgVoiceUrl" type="text"></label>
               <label><input id="cfgDreamEnabled" type="checkbox"> 启用闲置自动做梦整理</label>
@@ -372,6 +373,6 @@
   </div>
   <script src="/i18n-en.js"></script><script src="/i18n.js"></script>
   <script src="/cosmos.js"></script><script src="/workspace.js"></script>
-  <script src="/inner-life.js"></script><script src="/phase2.js"></script><script src="/app.js"></script>
+  <script src="/inner-life.js"></script><script src="/phase2.js"></script><script src="/memory-config.js"></script><script src="/app.js"></script>
 </body>
 </html>

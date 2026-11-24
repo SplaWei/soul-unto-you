@@ -221,10 +221,11 @@ export function reinforceRecalledExperiences(dir: string, experienceIds: string[
 
 /** 生成人类可读的记忆召回命中原因（供 Memory X-Ray 透视镜展示）。 */
 export function describeRecallReasons(params: {
-  semanticSim?: number; lexicalSim?: number; userPinned?: boolean; selfImportant?: boolean;
+  semanticSim?: number; lexicalSim?: number; rerankScore?: number; userPinned?: boolean; selfImportant?: boolean;
   mentionCount?: number; arousal?: number; recallCount?: number;
 }): { reasons: string[]; recallReason: string; channels: RecallChannel[] } {
   const rules: Array<[boolean, string, RecallChannel]> = [
+    [(params.rerankScore ?? 0) > 0, `重排精排(${Math.round((params.rerankScore ?? 0) * 100)}%)`, 'rerank'],
     [(params.semanticSim ?? 0) >= 0.45, `千问语义联想(${Math.round((params.semanticSim ?? 0) * 100)}%)`, 'semantic'],
     [(params.lexicalSim ?? 0) >= 0.2, `关键词命中(${Math.round((params.lexicalSim ?? 0) * 100)}%)`, 'lexical'],
     [Boolean(params.userPinned), '📌 叮嘱牢记', 'pinned'],

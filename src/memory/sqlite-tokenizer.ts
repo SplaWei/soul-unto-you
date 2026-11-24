@@ -3,6 +3,7 @@ export const TRACKED_MEMORY_FILES = [
   'journal.jsonl',
   'experiences.jsonl',
   'beliefs.jsonl',
+  'facts.jsonl',
   'co-becoming.jsonl',
   'self-evolution.jsonl',
 ] as const;
@@ -14,6 +15,7 @@ export type IndexedDocKind =
   | 'journal'
   | 'experience'
   | 'belief'
+  | 'fact'
   | 'co_becoming'
   | 'self_evolution';
 
@@ -252,6 +254,38 @@ export function normalizeMemoryRow(
         ...(raw.supersededAtSeq ? { supersededAtSeq: raw.supersededAtSeq } : {}),
         ...(raw.supersededById ? { supersededById: raw.supersededById } : {}),
         ...(Array.isArray(raw.evidenceSeqs) ? { evidenceSeqs: raw.evidenceSeqs } : {}),
+      }),
+    };
+  }
+
+  if (sourceFile === 'facts.jsonl') {
+    const id = str(raw.id).trim();
+    const rawStatus = str(raw.status, 'active');
+    const status = rawStatus === 'superseded' || rawStatus === 'deleted' ? rawStatus : 'active';
+    const category = str(raw.category, 'fact');
+    const subject = str(raw.subject);
+    return {
+      docId: `fact:${id || `seq:${seq || lineIndex}`}`,
+      sourceFile,
+      kind: 'fact',
+      seq,
+      timestamp: str(raw.updated_at || raw.valid_from || timestamp),
+      bodyType: str(raw.bodyType, 'soul'),
+      bodyId: 'soul',
+      speaker: subject || 'soul',
+      role: 'fact',
+      provenance: str(raw.provenance, 'verified'),
+      status,
+      title: category || 'fact',
+      text: str(raw.fact),
+      extraFtsText: [category, subject].filter(Boolean).join(' '),
+      metaJson: JSON.stringify({
+        id,
+        category,
+        ...(subject ? { subject } : {}),
+        valid_from: raw.valid_from,
+        ...(raw.superseded_by ? { superseded_by: raw.superseded_by } : {}),
+        ...(Array.isArray(raw.source_seqs) ? { source_seqs: raw.source_seqs } : {}),
       }),
     };
   }

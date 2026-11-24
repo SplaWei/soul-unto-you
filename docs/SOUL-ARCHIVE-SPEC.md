@@ -24,6 +24,7 @@
 │   ├── co-becoming.jsonl        # 双向蜕变年轮
 │   ├── experiences.jsonl        # [v1.1 可选] 亲历体验与现实反馈回路（origin: lived | inherited）
 │   ├── beliefs.jsonl            # [v1.1 可选] 带有效时序窗的动态信念演化记录
+│   ├── facts.jsonl              # [v1.1 可选] Mem0 风格结构化个人事实（active / superseded / deleted）
 │   └── self-evolution.jsonl     # [v1.1 可选] 自我性格与习惯变迁因果日志
 ├── INNER-LIFE/                  # [v1.1 可选] 内在生命状态（全部纯文本 JSON/JSONL）
 │   ├── drives.json              # 动态内驱力（好奇、亲密惦记、安全感、玩心、精力）

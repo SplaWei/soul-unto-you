@@ -28,6 +28,17 @@ export function collectImages(
   return merged;
 }
 
+export function buildRecallRetrievalParams(ctx: SoulHubContext) {
+  return {
+    embedding: ctx.config.embedding,
+    rerank: ctx.config.rerank,
+    retriever: ctx.retriever,
+    topK: ctx.config.retriever.topK ?? 5,
+    minScore: ctx.config.retriever.minScore ?? 0.12,
+    experimental: ctx.config.experimental,
+  };
+}
+
 export async function prepareRetrievalOutsideLock(
   ctx: SoulHubContext,
   dir: string,
@@ -36,11 +47,14 @@ export async function prepareRetrievalOutsideLock(
   bodyType: BodyType,
 ): Promise<{ precomputedRetrieval?: MemoryRetrievalResult; queryVec: number[] | null; vectorMap: Record<string, number[]> | null }> {
   const activeRetriever = ctx.retriever ?? BUILTIN_HYBRID_RETRIEVER;
-  if (activeRetriever.isExternal) {
+  if (activeRetriever.isExternal || ctx.config.rerank?.enabled) {
     const precomputedRetrieval = await executeRetrievalWithFallback(activeRetriever, {
-      archiveDir: dir, query, bodyId, bodyType, topK: 5,
+      archiveDir: dir, query, bodyId, bodyType,
+      topK: ctx.config.retriever.topK ?? 5,
+      minScore: ctx.config.retriever.minScore ?? 0.12,
       experienceTopK: ctx.config.experimental.enableFreeWill ? 4 : 0,
       embedding: ctx.config.embedding,
+      rerank: ctx.config.rerank,
     });
     return {
       precomputedRetrieval,

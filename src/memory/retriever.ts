@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
 import type { BodyType, LivedExperience, RecallChannel, SoulArchiveData } from '../soul/types.ts';
 import { recallExperiences, tokenizeText } from './experience.ts';
+import { checkRerankHealth, rerankDocuments, type RerankConfig } from './reranker.ts';
 import { ensureMemoryIndex, getMemoryIndexStatus, searchMemoryIndex } from './sqlite-index.ts';
 import { normalizeProvenance, numOr, scoreIndexedMemoryCandidates, type RecalledItem } from './sqlite-scorer.ts';
 import {
-  checkEmbeddingHealth, cosineSimilarity, fetchEmbeddings, loadVectorIndex,
+  checkEmbeddingHealth, cosineSimilarity, fetchEmbeddingsDetailed, loadVectorIndex,
   syncVectorIndexDetailed, type EmbeddingConfig,
 } from './vector-store.ts';
 
@@ -16,9 +17,11 @@ export interface MemoryRetrievalRequest {
   bodyId?: string;
   bodyType?: BodyType;
   topK?: number;
+  minScore?: number;
   experienceTopK?: number;
   nowMs?: number;
   embedding?: EmbeddingConfig;
+  rerank?: RerankConfig;
   queryVec?: number[] | null;
   vectorMap?: Record<string, number[]> | null;
   archive?: SoulArchiveData;
@@ -32,6 +35,9 @@ export interface MemoryRetrievalResult {
   vectorMap?: Record<string, number[]> | null;
   embeddingActive: boolean;
   embeddingModel?: string;
+  rerankActive?: boolean;
+  rerankModel?: string;
+  rerankFallbackReason?: string;
   fallbackFrom?: string;
   fallbackReason?: string;
   diagnostics?: Record<string, unknown>;
@@ -55,7 +61,7 @@ export interface MemoryRetriever {
   }>;
   retrieve(req: MemoryRetrievalRequest): Promise<MemoryRetrievalResult>;
   sync?(archiveDir: string, options?: { embedding?: EmbeddingConfig }): Promise<Record<string, unknown>>;
-  health?(archiveDir: string, options?: { embedding?: EmbeddingConfig }): Promise<MemoryRetrieverHealth>;
+  health?(archiveDir: string, options?: { embedding?: EmbeddingConfig; rerank?: RerankConfig }): Promise<MemoryRetrieverHealth>;
 }
 
 export interface RetrieverConfig {
@@ -63,11 +69,13 @@ export interface RetrieverConfig {
   endpoint?: string;
   apiKey?: string;
   timeoutMs?: number;
+  topK?: number;
+  minScore?: number;
 }
 
 export class BuiltinHybridRetriever implements MemoryRetriever {
   readonly id = 'builtin-hybrid';
-  readonly name = '内置混合检索 (FTS5+词法+向量+艾宾浩斯)';
+  readonly name = '内置混合检索 (FTS5+词法+向量+重排+艾宾浩斯)';
   readonly isExternal = false;
 
   async prefetch(req: Pick<MemoryRetrievalRequest, 'archiveDir' | 'query' | 'embedding'>) {
@@ -75,20 +83,24 @@ export class BuiltinHybridRetriever implements MemoryRetriever {
     const vecIdx = loadVectorIndex(req.archiveDir, req.embedding);
     if (!vecIdx || !Object.keys(vecIdx.items).length) return { queryVec: null, vectorMap: null };
     try {
-      return { queryVec: (await fetchEmbeddings([req.query], req.embedding))?.[0] ?? null, vectorMap: vecIdx.items };
+      const res = await fetchEmbeddingsDetailed([req.query], req.embedding);
+      return { queryVec: res.vectors?.[0] ?? null, vectorMap: vecIdx.items };
     } catch {
       return { queryVec: null, vectorMap: vecIdx.items };
     }
   }
 
   async retrieve(req: MemoryRetrievalRequest): Promise<MemoryRetrievalResult> {
-    const topK = req.topK ?? 6;
+    const topK = Math.max(1, Math.min(20, Math.round(req.topK ?? 6)));
     const nowMs = req.nowMs ?? Date.now();
     let vectorMap = req.vectorMap ?? null;
     let queryVec = req.queryVec !== undefined ? req.queryVec : null;
+    let embFallbackReason: string | undefined;
     if (req.embedding?.enabled && vectorMap === null) vectorMap = loadVectorIndex(req.archiveDir, req.embedding)?.items ?? null;
     if (req.embedding?.enabled && req.queryVec === undefined && vectorMap && Object.keys(vectorMap).length > 0) {
-      queryVec = (await fetchEmbeddings([req.query], req.embedding))?.[0] ?? null;
+      const embRes = await fetchEmbeddingsDetailed([req.query], req.embedding);
+      queryVec = embRes.vectors?.[0] ?? null;
+      embFallbackReason = embRes.fallbackReason;
     }
 
     const extraDocIds: string[] = [];
@@ -99,7 +111,9 @@ export class BuiltinHybridRetriever implements MemoryRetriever {
         if (sim >= 0.3) vecScored.push({ id, sim });
       }
       vecScored.sort((a, b) => b.sim - a.sim);
-      for (const v of vecScored.slice(0, Math.max(topK * 4, 24))) extraDocIds.push(`episode:${v.id}`);
+      for (const v of vecScored.slice(0, Math.max(topK * 4, 24))) {
+        extraDocIds.push(v.id.startsWith('fact_') ? `fact:${v.id}` : `episode:${v.id}`);
+      }
     }
 
     const indexRes = searchMemoryIndex(req.archiveDir, req.query, {
@@ -113,15 +127,70 @@ export class BuiltinHybridRetriever implements MemoryRetriever {
       queryVec,
       vectorMap,
       nowMs,
-    });
-    const items = candidates.sort((a, b) => b.score - a.score).slice(0, topK);
+    }).sort((a, b) => b.score - a.score);
+
+    let items: RecalledItem[] = [];
+    let rerankActive = false;
+    let rerankModel: string | undefined;
+    let rerankFallbackReason: string | undefined;
+
+    if (req.rerank?.enabled && candidates.length > 0) {
+      const pool = candidates.slice(0, Math.max(topK * 4, 20));
+      const docs = pool.map((c) => `${c.title}：${c.text}`.slice(0, 1200));
+      const rr = await rerankDocuments(req.query, docs, req.rerank);
+      if (rr.applied) {
+        rerankActive = true;
+        rerankModel = rr.model || req.rerank.model;
+        const rrMin = req.rerank.minScore ?? 0.25;
+        const rrTopN = Math.max(1, Math.min(topK, req.rerank.topN ?? topK));
+        const reranked: RecalledItem[] = [];
+        for (const hit of rr.results) {
+          if (hit.score < rrMin) continue;
+          const base = pool[hit.index];
+          if (!base) continue;
+          const pct = Math.round(hit.score * 100);
+          const channels: RecallChannel[] = base.recallChannels.includes('rerank')
+            ? base.recallChannels
+            : ['rerank', ...base.recallChannels];
+          reranked.push({
+            ...base,
+            rerankScore: Number(hit.score.toFixed(4)),
+            score: Number((0.78 * hit.score + 0.22 * Math.min(1, base.score)).toFixed(4)),
+            recallChannels: channels,
+            recallReason: `重排精排(${pct}%) · ${base.recallReason}`,
+          });
+        }
+        reranked.sort((a, b) => (b.rerankScore ?? 0) - (a.rerankScore ?? 0) || b.score - a.score);
+        items = reranked.slice(0, rrTopN);
+      } else {
+        rerankFallbackReason = rr.fallbackReason;
+      }
+    }
+
+    if (!rerankActive) {
+      const minScore = req.minScore !== undefined && Number.isFinite(req.minScore) ? req.minScore : 0;
+      const filtered = minScore > 0
+        ? candidates.filter((c) => c.score >= minScore && (c.lexicalSim > 0 || c.semanticSim >= 0.3 || c.kind === 'fact'))
+        : candidates;
+      items = filtered.slice(0, topK);
+    }
+
     const expLimit = req.experienceTopK ?? 4;
     const experiences = expLimit > 0
       ? recallExperiences(req.archiveDir, req.query, { bodyType: req.bodyType, topK: expLimit, nowMs, queryVec, vectorMap })
       : [];
     return {
-      retrieverId: this.id, items, experiences, queryVec, vectorMap, embeddingActive: Boolean(queryVec),
+      retrieverId: this.id,
+      items,
+      experiences,
+      queryVec,
+      vectorMap,
+      embeddingActive: Boolean(queryVec),
       ...(queryVec && req.embedding?.model ? { embeddingModel: req.embedding.model } : {}),
+      rerankActive,
+      ...(rerankModel ? { rerankModel } : {}),
+      ...(rerankFallbackReason ? { rerankFallbackReason } : {}),
+      ...(embFallbackReason ? { diagnostics: { embeddingFallbackReason: embFallbackReason } } : {}),
     };
   }
 
@@ -132,37 +201,45 @@ export class BuiltinHybridRetriever implements MemoryRetriever {
     return { ...vec, ftsIndex };
   }
 
-  async health(archiveDir: string, options?: { embedding?: EmbeddingConfig }): Promise<MemoryRetrieverHealth> {
+  async health(archiveDir: string, options?: { embedding?: EmbeddingConfig; rerank?: RerankConfig }): Promise<MemoryRetrieverHealth> {
     const fts = getMemoryIndexStatus(archiveDir);
     const skipNote = fts.skippedCount > 0
       ? `（跳过 ${fts.skippedCount} 行: ${fts.skippedLines.slice(0, 3).map((s) => `${s.sourceFile}:${s.lineNumber}`).join(', ')}）`
       : '';
     const ftsNote = fts.exists ? `SQLite FTS5 就绪(${fts.docCount}条)${skipNote}` : 'SQLite FTS5 待按需重建';
+    const parts: string[] = [ftsNote];
     if (!options?.embedding?.enabled) {
-      return { ok: true, retrieverId: this.id, name: this.name, detail: `${ftsNote} · 词法+艾宾浩斯常驻就绪（向量增强未开启）` };
+      parts.push('词法+艾宾浩斯常驻就绪（向量增强未开启）');
+    } else {
+      const rep = await checkEmbeddingHealth(options.embedding);
+      parts.push(
+        rep.ok
+          ? `向量模型 ${rep.model} (${rep.dimensions ?? 0}维) 在线`
+          : `向量离线自动降级 FTS5: ${rep.detail}`,
+      );
     }
-    const rep = await checkEmbeddingHealth(options.embedding);
-    return {
-      ok: true, retrieverId: this.id, name: this.name,
-      detail: rep.ok
-        ? `${ftsNote} · 向量模型 ${rep.model} (${rep.dimensions ?? 0}维) 在线`
-        : `${ftsNote} · 向量离线自动降级词法检索: ${rep.detail}`,
-    };
+    if (options?.rerank?.enabled) {
+      const rRep = await checkRerankHealth(options.rerank);
+      parts.push(rRep.ok ? `Rerank ${rRep.model} 在线` : `Rerank 降级: ${rRep.detail}`);
+    }
+    return { ok: true, retrieverId: this.id, name: this.name, detail: parts.join(' · ') };
   }
 }
 
 export const BUILTIN_HYBRID_RETRIEVER = new BuiltinHybridRetriever();
 
 function normalizeExternalItem(raw: Record<string, unknown>, idx: number): RecalledItem {
+  const kind = raw.kind === 'journal' ? 'journal' : raw.kind === 'fact' ? 'fact' : 'episode';
   return {
     ...(raw.id ? { id: String(raw.id) } : {}),
-    kind: raw.kind === 'journal' ? 'journal' : 'episode',
+    kind,
     seq: numOr(raw.seq, idx + 1), score: numOr(raw.score, 0.5),
     bodyType: String(raw.bodyType || 'external'), provenance: normalizeProvenance(raw.provenance),
     timestamp: String(raw.timestamp || new Date().toISOString()), title: String(raw.title || '外部记忆片段'),
     text: String(raw.text || ''), retentionPct: numOr(raw.retentionPct, 85), strength: numOr(raw.strength, 6),
     recallCount: numOr(raw.recallCount, 0), mentionCount: numOr(raw.mentionCount, 1),
     semanticSim: numOr(raw.semanticSim, 0), lexicalSim: numOr(raw.lexicalSim, 0),
+    ...(typeof raw.rerankScore === 'number' && Number.isFinite(raw.rerankScore) ? { rerankScore: raw.rerankScore } : {}),
     ...(raw.userPinned ? { userPinned: true } : {}), ...(raw.selfImportant ? { selfImportant: true } : {}),
     recallReason: String(raw.recallReason || '外部记忆引擎召回'),
     recallChannels: Array.isArray(raw.recallChannels) ? (raw.recallChannels as RecallChannel[]) : ['semantic'],
@@ -203,13 +280,14 @@ export function createHttpMemoryRetriever(config: {
         method: 'POST', headers: headers(), signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
           archiveId, query: req.query, bodyId: req.bodyId, bodyType: req.bodyType,
-          topK: req.topK ?? 5, experienceTopK: req.experienceTopK ?? 4, nowMs: req.nowMs ?? Date.now(),
+          topK: req.topK ?? 5, minScore: req.minScore, experienceTopK: req.experienceTopK ?? 4, nowMs: req.nowMs ?? Date.now(),
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as {
         items?: Array<Record<string, unknown>>; experiences?: Array<Record<string, unknown>>;
-        embeddingActive?: boolean; embeddingModel?: string; diagnostics?: Record<string, unknown>;
+        embeddingActive?: boolean; embeddingModel?: string; rerankActive?: boolean; rerankModel?: string;
+        diagnostics?: Record<string, unknown>;
       };
       if (!data || !Array.isArray(data.items)) throw new Error('外部记忆引擎返回格式无效（缺少 items 数组）');
       const expTopK = req.experienceTopK ?? 4;
@@ -219,6 +297,8 @@ export function createHttpMemoryRetriever(config: {
         experiences: expTopK > 0 && Array.isArray(data.experiences) ? data.experiences.slice(0, expTopK).map(normalizeExternalExperience) : [],
         embeddingActive: Boolean(data.embeddingActive),
         ...(data.embeddingModel ? { embeddingModel: String(data.embeddingModel) } : {}),
+        ...(data.rerankActive !== undefined ? { rerankActive: Boolean(data.rerankActive) } : {}),
+        ...(data.rerankModel ? { rerankModel: String(data.rerankModel) } : {}),
         ...(data.diagnostics ? { diagnostics: data.diagnostics } : {}),
       };
     },

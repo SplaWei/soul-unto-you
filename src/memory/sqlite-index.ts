@@ -303,7 +303,7 @@ export function searchMemoryIndex(
       const ftsSql = `
         SELECT ${DOC_SELECT_COLS}, bm25(memory_fts) AS rank
         FROM memory_fts f JOIN memory_docs d ON d.rowid = f.rowid
-        WHERE memory_fts MATCH ? AND d.kind IN ('episode', 'journal') AND d.status = 'active'
+        WHERE memory_fts MATCH ? AND d.kind IN ('episode', 'journal', 'fact') AND d.status = 'active'
         ORDER BY rank LIMIT ?
       `;
       const hitMap = new Map<string, IndexedFtsHit>();

@@ -9,7 +9,7 @@ import {
 } from './storage.ts';
 import type {
   CoBecomingNote, Commitment, InnerDiaryEntry, JournalEntry, LivedExperience, MemoryEpisode,
-  Provenance, SelfEvolutionNote, SoulArchiveData, SoulDesire, SoulDrives,
+  MemoryFact, Provenance, SelfEvolutionNote, SoulArchiveData, SoulDesire, SoulDrives,
   SoulIdentity, SoulMeta, TemporalBelief,
 } from './types.ts';
 
@@ -154,7 +154,7 @@ export function ensureArchiveScaffold(dir: string, identityHint?: SoulIdentity):
   fs.mkdirSync(p.index, { recursive: true });
   const now = new Date().toISOString();
   const id = normalizeIdentity(identityHint ?? readJsonObjectSafe(path.join(p.root, 'identity.json'), {}));
-  for (const fp of [p.journal, p.episodesJsonl, p.coBecoming, p.experiences, p.beliefs, p.selfEvolution, p.diary]) {
+  for (const fp of [p.journal, p.episodesJsonl, p.coBecoming, p.experiences, p.beliefs, p.facts, p.selfEvolution, p.diary]) {
     if (!fs.existsSync(fp)) writeTextAtomic(fp, '');
   }
   if (!fs.existsSync(p.drives)) writeJsonAtomic(p.drives, { ...DEFAULT_SOUL_DRIVES, lastUpdatedAt: now });
@@ -311,6 +311,7 @@ export function loadSoulArchive(dir: string, journalLimit = 40, episodeLimit = 0
     coBecoming: readJsonlSafe<CoBecomingNote>(p.coBecoming),
     experiences: readJsonlSafe<LivedExperience>(p.experiences),
     beliefs: readJsonlSafe<TemporalBelief>(p.beliefs),
+    facts: readJsonlSafe<MemoryFact>(p.facts),
     selfEvolution: readJsonlSafe<SelfEvolutionNote>(p.selfEvolution),
     drives: readJsonObjectSafe<SoulDrives>(p.drives, { ...DEFAULT_SOUL_DRIVES }),
     desires: readJsonArraySafe<SoulDesire>(p.desires, []),

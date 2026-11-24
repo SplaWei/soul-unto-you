@@ -6,10 +6,16 @@ import { buildExperienceAndFreeWillPrompt } from '../soul/free-will.ts';
 import { buildEvolvingSelfPromptSection } from '../soul/living-self.ts';
 import type {
   BodyRegistration, BodyType, Commitment, ExperimentalConfig, LivedExperience, MemoryEpisode,
-  PresenceState, RecallTrace, SoulDesire, SoulDrives,
+  MemoryFact, PresenceState, RecallTrace, SoulDesire, SoulDrives,
 } from '../soul/types.ts';
 import { lexicalSimilarity, tokenizeText } from './experience.ts';
+import {
+  applyFactOperations, formatActiveFactsPromptSection, getSupersededFactSourceSeqs,
+  listActiveFacts, listFacts, selectActiveFactsForPrompt,
+  type FactAction, type FactApplyReport, type FactOperation, type FactStatus,
+} from './facts.ts';
 import { formatActivePersonPromptLine, rankRelationsForPrompt, toActivePersonTrace, type PersonResolution } from './relations.ts';
+import { checkRerankHealth, rerankDocuments, type RerankConfig, type RerankHealthReport, type RerankResponse } from './reranker.ts';
 import { computeRetention, reinforceRecalledEpisodes, reinforceRecalledExperiences } from './retention.ts';
 import {
   BUILTIN_HYBRID_RETRIEVER, BuiltinHybridRetriever, createHttpMemoryRetriever,
@@ -30,15 +36,18 @@ import {
 } from './sqlite-index.ts';
 
 export {
-  BUILTIN_HYBRID_RETRIEVER, BuiltinHybridRetriever, checkEmbeddingHealth, cosineSimilarity,
-  createHttpMemoryRetriever, ensureMemoryIndex, executeRetrievalWithFallback, fetchEmbeddings,
-  getMemoryIndexStatus, getMemoryRetriever, lexicalSimilarity, listMemoryRetrievers,
-  rebuildMemoryIndex, registerMemoryRetriever, resolveConfiguredRetriever, searchMemoryIndex,
+  BUILTIN_HYBRID_RETRIEVER, BuiltinHybridRetriever, applyFactOperations, checkEmbeddingHealth,
+  checkRerankHealth, cosineSimilarity, createHttpMemoryRetriever, ensureMemoryIndex,
+  executeRetrievalWithFallback, fetchEmbeddings, getMemoryIndexStatus, getMemoryRetriever,
+  lexicalSimilarity, listActiveFacts, listFacts, listMemoryRetrievers, rebuildMemoryIndex,
+  registerMemoryRetriever, rerankDocuments, resolveConfiguredRetriever, searchMemoryIndex,
   syncVectorIndex, syncVectorIndexDetailed, tokenizeText, unregisterMemoryRetriever,
-  type EmbeddingConfig, type EmbeddingHealthReport, type IndexedDocRow, type IndexedFtsHit,
+  type EmbeddingConfig, type EmbeddingHealthReport, type FactAction, type FactApplyReport,
+  type FactOperation, type FactStatus, type IndexedDocRow, type IndexedFtsHit, type MemoryFact,
   type MemoryIndexSearchResult, type MemoryIndexSyncReport, type MemoryRetrievalRequest,
   type MemoryRetrievalResult, type MemoryRetriever, type MemoryRetrieverHealth,
-  type RecallTrace, type RecalledItem, type RetrieverConfig, type SkippedJsonlLine, type VectorSyncReport,
+  type RecallTrace, type RecalledItem, type RerankConfig, type RerankHealthReport,
+  type RerankResponse, type RetrieverConfig, type SkippedJsonlLine, type VectorSyncReport,
 };
 
 function formatCurrentClock(nowMs: number): string {
@@ -71,34 +80,23 @@ function reinforceEpisodesFromHits(dir: string, items: RecalledItem[], nowMs: nu
   if (hitIds.length) reinforceRecalledEpisodes(dir, hitIds, nowMs);
 }
 
-/** 融合本地或外部可插拔记忆检索器召回情景与流水记忆。 */
+/** 融合本地或外部可插拔记忆检索器召回情景、事实与流水记忆。 */
 export async function recallMemories(
   dir: string,
   query: string,
   options: {
-    topK?: number;
-    embedding?: EmbeddingConfig;
-    nowMs?: number;
-    reinforce?: boolean;
-    queryVec?: number[] | null;
-    vectorMap?: Record<string, number[]> | null;
-    retriever?: MemoryRetriever;
-    bodyId?: string;
-    bodyType?: BodyType;
+    topK?: number; minScore?: number; embedding?: EmbeddingConfig; rerank?: RerankConfig;
+    nowMs?: number; reinforce?: boolean; queryVec?: number[] | null;
+    vectorMap?: Record<string, number[]> | null; retriever?: MemoryRetriever;
+    bodyId?: string; bodyType?: BodyType;
   } = {},
 ): Promise<RecalledItem[]> {
   const nowMs = options.nowMs ?? Date.now();
   const retrieval = await executeRetrievalWithFallback(options.retriever, {
-    archiveDir: dir,
-    query,
-    bodyId: options.bodyId,
-    bodyType: options.bodyType,
-    topK: options.topK ?? 6,
-    experienceTopK: 0,
-    nowMs,
-    embedding: options.embedding,
-    queryVec: options.queryVec,
-    vectorMap: options.vectorMap,
+    archiveDir: dir, query, bodyId: options.bodyId, bodyType: options.bodyType,
+    topK: options.topK ?? 6, minScore: options.minScore, experienceTopK: 0, nowMs,
+    embedding: options.embedding, rerank: options.rerank,
+    queryVec: options.queryVec, vectorMap: options.vectorMap,
   });
   if (options.reinforce) reinforceEpisodesFromHits(dir, retrieval.items, nowMs);
   return retrieval.items;
@@ -110,33 +108,18 @@ const stripSeedCoBecomingLines = (md: string): string =>
   md.split(/\r?\n/).filter((line) => !/^\s*CoBecoming\s*:/i.test(line)).join('\n').trim();
 
 export async function buildRecallContext(params: {
-  archiveDir: string;
-  query: string;
-  bodyId: string;
-  bodyType: BodyType;
-  presence?: PresenceState | null;
-  bodyRegistration?: BodyRegistration | null;
-  embedding?: EmbeddingConfig;
-  queryVec?: number[] | null;
-  vectorMap?: Record<string, number[]> | null;
-  nowMs?: number;
-  reinforce?: boolean;
-  retriever?: MemoryRetriever;
-  precomputedRetrieval?: MemoryRetrievalResult;
-  activePerson?: PersonResolution | null;
+  archiveDir: string; query: string; bodyId: string; bodyType: BodyType;
+  presence?: PresenceState | null; bodyRegistration?: BodyRegistration | null;
+  embedding?: EmbeddingConfig; rerank?: RerankConfig; topK?: number; minScore?: number;
+  queryVec?: number[] | null; vectorMap?: Record<string, number[]> | null;
+  nowMs?: number; reinforce?: boolean; retriever?: MemoryRetriever;
+  precomputedRetrieval?: MemoryRetrievalResult; activePerson?: PersonResolution | null;
   experimental?: Partial<ExperimentalConfig>;
 }): Promise<{
-  systemPrompt: string;
-  recalled: RecalledItem[];
-  recalledExperiences: LivedExperience[];
-  drives?: SoulDrives;
-  emotion?: SoulEmotionState;
-  activeDesires: SoulDesire[];
-  activeCommitments: Commitment[];
-  recentEpisodes: MemoryEpisode[];
-  recallTrace: RecallTrace;
-  queryVec: number[] | null;
-  vectorMap: Record<string, number[]> | null;
+  systemPrompt: string; recalled: RecalledItem[]; recalledExperiences: LivedExperience[];
+  activeFacts: MemoryFact[]; drives?: SoulDrives; emotion?: SoulEmotionState;
+  activeDesires: SoulDesire[]; activeCommitments: Commitment[]; recentEpisodes: MemoryEpisode[];
+  recallTrace: RecallTrace; queryVec: number[] | null; vectorMap: Record<string, number[]> | null;
   retrieverId: string;
 }> {
   const nowMs = params.nowMs ?? Date.now();
@@ -153,35 +136,31 @@ export async function buildRecallContext(params: {
   const recentEpisodes = archive.episodes.slice(-5);
 
   const retrieval = params.precomputedRetrieval ?? await executeRetrievalWithFallback(params.retriever, {
-    archiveDir: params.archiveDir,
-    query: params.query,
-    bodyId: params.bodyId,
-    bodyType: params.bodyType,
-    topK: 5,
-    experienceTopK: enableFreeWill ? 4 : 0,
-    nowMs,
-    embedding: params.embedding,
-    queryVec: params.queryVec,
-    vectorMap: params.vectorMap,
-    archive,
+    archiveDir: params.archiveDir, query: params.query, bodyId: params.bodyId, bodyType: params.bodyType,
+    topK: params.topK ?? 5, minScore: params.minScore ?? 0.12,
+    experienceTopK: enableFreeWill ? 4 : 0, nowMs,
+    embedding: params.embedding, rerank: params.rerank,
+    queryVec: params.queryVec, vectorMap: params.vectorMap, archive,
   });
 
   const recalled = retrieval.items;
   const recalledExperiences = enableFreeWill ? retrieval.experiences : [];
   const queryVec = retrieval.queryVec ?? null;
   const vectorMap = retrieval.vectorMap ?? null;
+  const activeFacts = selectActiveFactsForPrompt(params.archiveDir, params.query, { maxFacts: 8, queryVec, vectorMap });
+  const supersededSeqs = getSupersededFactSourceSeqs(params.archiveDir);
 
   if (reinforce) {
     reinforceEpisodesFromHits(params.archiveDir, recalled, nowMs);
     if (enableFreeWill && recalledExperiences.length) {
       const hitExpIds = recalledExperiences
-        .filter((exp) => {
-          const hay = `${exp.stimulus} ${exp.chosenAction} ${exp.realityOutcome} ${exp.lesson} ${(exp.tags ?? []).join(' ')}`;
+        .filter((e) => {
+          const hay = `${e.stimulus} ${e.chosenAction} ${e.realityOutcome} ${e.lesson} ${(e.tags ?? []).join(' ')}`;
           const lex = lexicalSimilarity(params.query, hay);
-          const vec = queryVec && vectorMap?.[exp.id] ? cosineSimilarity(queryVec, vectorMap[exp.id]) : 0;
+          const vec = queryVec && vectorMap?.[e.id] ? cosineSimilarity(queryVec, vectorMap[e.id]) : 0;
           return lex >= 0.2 || vec >= 0.45;
         })
-        .map((exp) => exp.id);
+        .map((e) => e.id);
       if (hitExpIds.length) reinforceRecalledExperiences(params.archiveDir, hitExpIds, nowMs);
     }
   }
@@ -192,9 +171,7 @@ export async function buildRecallContext(params: {
   const seedForPrompt = enableInnerLife ? archive.seedMarkdown.trim() : stripSeedCoBecomingLines(archive.seedMarkdown);
   const soulForPrompt = enableInnerLife ? archive.soulMarkdown.trim() : stripSoulCoBecomingSection(archive.soulMarkdown);
   const sections: string[] = [
-    seedForPrompt,
-    soulForPrompt,
-    '---',
+    seedForPrompt, soulForPrompt, '---',
     '## 全局实时在场状态 (Global Presence)',
     `- 当前现实时间：${formatCurrentClock(nowMs)}`,
     `- 距上次互动：${lastGap}`,
@@ -225,6 +202,9 @@ export async function buildRecallContext(params: {
     sections.push('- 暂无待续约定。');
   }
 
+  const factsSection = formatActiveFactsPromptSection(activeFacts);
+  if (factsSection) sections.push(factsSection);
+
   sections.push('', '## 近期情景日记 (Recent Episodes · 跨躯体共享记忆)');
   if (recentEpisodes.length) {
     for (const ep of recentEpisodes) {
@@ -236,9 +216,13 @@ export async function buildRecallContext(params: {
     sections.push('- 尚未归档情景日记。');
   }
 
-  const extraRecalled = recalled.filter(
-    (r) => r.kind !== 'episode' || !recentEpisodes.some((ep) => ep.seq === r.seq),
-  );
+  const activeFactIds = new Set(activeFacts.map((f) => f.id));
+  const extraRecalled = recalled.filter((r) => {
+    if (r.kind === 'fact' && r.id && activeFactIds.has(r.id)) return false;
+    if (r.kind === 'journal' && supersededSeqs.has(r.seq)) return false;
+    if (r.kind === 'episode' && recentEpisodes.some((ep) => ep.seq === r.seq)) return false;
+    return true;
+  });
   if (extraRecalled.length) {
     sections.push('', '## 按当前对话唤醒的相关片段 (Recalled Fragments)');
     for (const item of extraRecalled.slice(0, 4)) {
@@ -254,7 +238,7 @@ export async function buildRecallContext(params: {
     }
   }
 
-  const timeline = archive.recentJournal.filter((j) => j.role !== 'system').slice(-14);
+  const timeline = archive.recentJournal.filter((j) => j.role !== 'system' && !supersededSeqs.has(j.seq)).slice(-14);
   if (timeline.length) {
     sections.push('', '## 刚刚发生的连续时间线 (Unified Real-Time Timeline · 从旧到新，最底下一条是最新发生的！)');
     for (const j of timeline) {
@@ -264,7 +248,7 @@ export async function buildRecallContext(params: {
   }
 
   const earlierOther = archive.recentJournal
-    .filter((j) => j.role !== 'system' && j.bodyId !== params.bodyId && !timeline.some((t) => t.seq === j.seq))
+    .filter((j) => j.role !== 'system' && j.bodyId !== params.bodyId && !supersededSeqs.has(j.seq) && !timeline.some((t) => t.seq === j.seq))
     .slice(-3);
   if (earlierOther.length) {
     sections.push('', '## 更早之前的跨躯体补充经历');
@@ -286,28 +270,25 @@ export async function buildRecallContext(params: {
     '2. 标有 [推演] 或 [口述] 的记忆来自残片重塑，若记不清细节请温柔诚实地说“只记得大概”或询问对方，绝不编造虚假细节。',
     '3. 自然贴合当前躯体场景的说话方式，保持角色温暖陪伴感。',
     '4. 连续时间线最底部是刚刚最新发生的事（跨躯体也完全实时互通），请优先回应最新动态，不要被更早之前的重复对话误导。',
+    '5. 若「长期个人事实记忆 (Active Facts)」中存在最新有效事实，代表对方已更新近况；当其与更早的情景日记或历史流水冲突时，一律以最新有效事实为准，不要把已过期旧信息当作当前状态回答。',
   );
 
   const embModel = retrieval.embeddingModel || (queryVec && params.embedding?.model ? params.embedding.model : undefined);
   const recallTrace: RecallTrace = {
-    bodyId: params.bodyId,
-    bodyType: params.bodyType,
+    bodyId: params.bodyId, bodyType: params.bodyType,
     embeddingActive: retrieval.embeddingActive || Boolean(queryVec),
     ...(embModel ? { embeddingModel: embModel } : {}),
+    ...(retrieval.rerankActive !== undefined ? { rerankActive: retrieval.rerankActive } : {}),
+    ...(retrieval.rerankModel ? { rerankModel: retrieval.rerankModel } : {}),
+    ...(retrieval.rerankFallbackReason ? { rerankFallbackReason: retrieval.rerankFallbackReason } : {}),
     retrieverId: retrieval.retrieverId,
     ...(retrieval.fallbackFrom ? { retrieverFallbackFrom: retrieval.fallbackFrom } : {}),
     ...(enableEmotion && emotion
-      ? {
-          emotionSummary: {
-            valence: emotion.valence, arousal: emotion.arousal, safety: emotion.safety, moodLabel: emotion.moodLabel,
-            ...(emotion.rawMoodHint ? { rawMoodHint: emotion.rawMoodHint } : {}),
-          },
-        }
+      ? { emotionSummary: { valence: emotion.valence, arousal: emotion.arousal, safety: emotion.safety, moodLabel: emotion.moodLabel, ...(emotion.rawMoodHint ? { rawMoodHint: emotion.rawMoodHint } : {}) } }
       : {}),
     ...(params.activePerson ? { activePerson: toActivePersonTrace(params.activePerson) } : {}),
-    activeCommitments: activeCommitments.slice(-8).map((c) => ({
-      id: c.id, title: c.title, sourceBodyType: c.sourceBodyType, provenance: c.provenance,
-    })),
+    activeCommitments: activeCommitments.slice(-8).map((c) => ({ id: c.id, title: c.title, sourceBodyType: c.sourceBodyType, provenance: c.provenance })),
+    ...(activeFacts.length ? { activeFacts: activeFacts.map((f) => ({ id: f.id, seq: f.seq, ...(f.category ? { category: f.category } : {}), fact: f.fact, valid_from: f.valid_from })) } : {}),
     recentEpisodes: recentEpisodes.map((ep) => {
       const ret = computeRetention(ep, nowMs);
       return {
@@ -321,16 +302,15 @@ export async function buildRecallContext(params: {
       seq: item.seq, title: item.title, bodyType: item.bodyType, provenance: item.provenance,
       score: Number(item.score.toFixed(3)), retentionPct: item.retentionPct, strength: item.strength,
       recallCount: item.recallCount, mentionCount: item.mentionCount,
-      ...(item.userPinned ? { userPinned: true } : {}),
-      ...(item.selfImportant ? { selfImportant: true } : {}),
+      ...(item.userPinned ? { userPinned: true } : {}), ...(item.selfImportant ? { selfImportant: true } : {}),
       semanticSim: item.semanticSim, lexicalSim: item.lexicalSim, recallReason: item.recallReason,
     })),
-    recalledExperiences: recalledExperiences.map((exp) => {
-      const ret = computeRetention(exp, nowMs);
+    recalledExperiences: recalledExperiences.map((e) => {
+      const ret = computeRetention(e, nowMs);
       return {
-        seq: exp.seq, origin: exp.origin, bodyType: exp.bodyType, stimulus: exp.stimulus,
-        realityOutcome: exp.realityOutcome, valence: exp.valence, arousal: exp.arousal,
-        lesson: exp.lesson, retentionPct: ret.retentionPct, strength: ret.strength, recallCount: exp.recallCount ?? 0,
+        seq: e.seq, origin: e.origin, bodyType: e.bodyType, stimulus: e.stimulus,
+        realityOutcome: e.realityOutcome, valence: e.valence, arousal: e.arousal,
+        lesson: e.lesson, retentionPct: ret.retentionPct, strength: ret.strength, recallCount: e.recallCount ?? 0,
       };
     }),
     ...(enableInnerLife && drives ? {
@@ -343,16 +323,8 @@ export async function buildRecallContext(params: {
 
   return {
     systemPrompt: sections.join('\n'),
-    recalled,
-    recalledExperiences,
-    drives,
-    emotion,
-    activeDesires,
-    activeCommitments,
-    recentEpisodes,
-    recallTrace,
-    queryVec,
-    vectorMap,
+    recalled, recalledExperiences, activeFacts, drives, emotion, activeDesires,
+    activeCommitments, recentEpisodes, recallTrace, queryVec, vectorMap,
     retrieverId: retrieval.retrieverId,
   };
 }

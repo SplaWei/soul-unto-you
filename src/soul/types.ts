@@ -304,46 +304,37 @@ export interface ResurrectionResult {
   commitmentsCreated: number;
 }
 
-export interface SoulArchiveData {
-  dir: string;
-  meta: SoulMeta;
-  identity: SoulIdentity;
-  soulMarkdown: string;
-  evolvingSelfMarkdown: string;
-  seedMarkdown: string;
-  resurrectionMarkdown: string;
-  episodes: MemoryEpisode[];
-  commitments: Commitment[];
-  relations: Relation[];
-  coBecoming: CoBecomingNote[];
-  experiences: LivedExperience[];
-  beliefs: TemporalBelief[];
-  selfEvolution: SelfEvolutionNote[];
-  drives: SoulDrives;
-  desires: SoulDesire[];
-  diary: InnerDiaryEntry[];
-  recentJournal: JournalEntry[];
+export type FactStatus = 'active' | 'superseded' | 'deleted';
+export type FactAction = 'ADD' | 'UPDATE' | 'DELETE' | 'NONE';
+export interface MemoryFact {
+  id: string; seq: number; fact: string; category?: string; subject?: string;
+  valid_from: string; updated_at: string; status: FactStatus;
+  superseded_by: string | null; source_seqs?: number[]; bodyType?: BodyType; provenance: Provenance;
 }
 
-export type RecallChannel = 'semantic' | 'lexical' | 'pinned' | 'self_important' | 'repeated' | 'emotional' | 'recent';
+export interface SoulArchiveData {
+  dir: string; meta: SoulMeta; identity: SoulIdentity;
+  soulMarkdown: string; evolvingSelfMarkdown: string; seedMarkdown: string; resurrectionMarkdown: string;
+  episodes: MemoryEpisode[]; commitments: Commitment[]; relations: Relation[];
+  coBecoming: CoBecomingNote[]; experiences: LivedExperience[];
+  beliefs: TemporalBelief[]; facts?: MemoryFact[]; selfEvolution: SelfEvolutionNote[];
+  drives: SoulDrives; desires: SoulDesire[]; diary: InnerDiaryEntry[]; recentJournal: JournalEntry[];
+}
+
+export type RecallChannel = 'semantic' | 'lexical' | 'rerank' | 'pinned' | 'self_important' | 'repeated' | 'emotional' | 'recent';
 
 export interface MemoryEngraveEvent {
-  episodeId: string;
-  seq: number;
-  title: string;
+  episodeId: string; seq: number; title: string;
   channels: Array<'user_pinned' | 'repeated_mention' | 'self_important'>;
-  strength: number;
-  retentionPct: number;
-  reason: string;
+  strength: number; retentionPct: number; reason: string;
 }
 
 export interface RecallTrace {
-  bodyId: string;
-  bodyType: string;
-  embeddingActive: boolean;
-  embeddingModel?: string;
+  bodyId: string; bodyType: string; embeddingActive: boolean; embeddingModel?: string;
+  rerankActive?: boolean; rerankModel?: string; rerankFallbackReason?: string;
   engravedMemories?: MemoryEngraveEvent[];
   activeCommitments: Array<{ id: string; title: string; sourceBodyType: string; provenance: Provenance }>;
+  activeFacts?: Array<{ id: string; seq: number; category?: string; fact: string; valid_from: string }>;
   recentEpisodes: Array<{
     seq: number; title: string; bodyType: string; provenance: Provenance;
     retentionPct: number; strength: number; recallCount: number; mentionCount: number;
@@ -361,18 +352,12 @@ export interface RecallTrace {
   freeWillDecision?: FreeWillDecision;
   drivesSummary?: SoulDrives & { epistemicLabel: string };
   activeDesires?: Array<{ id: string; title: string; urgency: number; triggerSource: string }>;
-  crossBodyTraces: string[];
-  availableActions: string[];
-  retrieverId?: string;
-  retrieverFallbackFrom?: string;
+  crossBodyTraces: string[]; availableActions: string[]; retrieverId?: string; retrieverFallbackFrom?: string;
   emotionSummary?: { valence: number; arousal: number; safety: number; moodLabel: string; rawMoodHint?: string };
   activePerson?: { personId: string; name: string; role: string; familiarity: number; interactionCount: number; matchedBy: string; channels: string[] };
 }
 
 export interface ExperimentalConfig {
-  enableEmotion: boolean;
-  enableInnerLife: boolean;
-  enableFreeWill: boolean;
-  enableHeartbeat: boolean;
-  enableResurrection: boolean;
+  enableEmotion: boolean; enableInnerLife: boolean; enableFreeWill: boolean;
+  enableHeartbeat: boolean; enableResurrection: boolean;
 }

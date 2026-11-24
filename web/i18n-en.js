@@ -239,5 +239,13 @@ window.SOUL_I18N_EN = {
     'p2.promptWait': 'Experimental: {exp} | No turn captured yet; send 1 message in "I Dual Sandbox" first.',
     'p2.promptEmpty': 'No prompt captured yet', 'p2.copyPrompt': 'Copy Prompt',
     'p2.promptMeta': '{at} · [{src}] {bodyType} ({bodyId}) · Model: {driver}/{model} · ~{tok} tokens ({chars} chars) · Experimental: {exp}',
+    'mem.embedKey': 'Embedding API Key (Optional for Cloud Qwen/SiliconFlow; keep ****)',
+    'mem.rerankToggle': ' Enable Generic Rerank (SiliconFlow / DashScope Qwen3-Reranker)',
+    'mem.rerankUrl': 'Rerank Endpoint (e.g. https://api.siliconflow.cn/v1)',
+    'mem.rerankModel': 'Rerank Model (e.g. Qwen/Qwen3-Reranker-0.6B)',
+    'mem.rerankKey': 'Rerank API Key (Optional for Cloud; keep ****)',
+    'mem.rerankMin': 'Rerank Min Score Threshold (0~1)',
+    'mem.probeRerank': 'Probe Rerank',
+    'mem.rerankIdle': 'Disabled or idle (falls back to FTS5 if key is missing)',
   },
 };

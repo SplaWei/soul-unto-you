@@ -173,7 +173,9 @@ export async function handleMcpRpc(ctx: SoulHubContext, req: McpRequest): Promis
     } else if (name === 'soul_recall') {
       payload = await recallMemories(ctx.config.archiveDir, String(args.query || ''), {
         topK: Number(args.topK) || 5,
+        minScore: ctx.config.retriever.minScore,
         embedding: ctx.config.embedding,
+        rerank: ctx.config.rerank,
         retriever: ctx.retriever,
       });
     } else if (name === 'soul_remember') {

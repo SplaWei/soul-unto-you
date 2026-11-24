@@ -330,14 +330,25 @@ export function runExperienceAwareMockChat(input: MockChatInput) {
     return { reply: reply.trim(), decidedToSpeak: true, mood: '雀跃投入', actions, ...fwPatch(reply, 'gladly_accept', `受正向亲历鼓舞 [seq:${warmLived.seq}]`), ...selfImpPatch };
   }
 
+  const activeFacts = extractSectionLines(input.systemPrompt, '## 长期个人事实记忆');
   const recalled = extractSectionLines(input.systemPrompt, '## 按当前对话唤醒的相关片段');
   const askingPast = /(昨天|昨晚|刚才|之前|干了|干嘛|记得|建筑|墙|游戏|约定|进度)/.test(q);
   const askingQuestion = askingPast || /[?？]|什么|叫啥|哪|谁|几|多少|吗$/.test(q);
   const askingSpecific = /(哪一年|哪年|什么时候|什么颜色|穿什么|穿的什么|外套|具体|照片|当时)/.test(q);
   const hasFragmentBoundary = /(残片|推演|缺失未记录|模糊)/.test(episodes.join('\n'));
   const greeting = /^(早|早安|你好|哈喽|在吗|hi|hello)/i.test(q);
+  const qCjkChars = Array.from(new Set(q.match(/[\u4e00-\u9fa5]/g) ?? [])).filter((c) => !'的了是在我你他她它们这那有和也就都还很啊呀呢吧吗哦嗯么什怎么哪谁把被让给'.includes(c));
+  const matchedFacts = askingQuestion && activeFacts.length
+    ? activeFacts.filter((line) => {
+        const clean = line.replace(/^- (?:\[[^\]]+\])+\s*/, '').replace(/\s*\(valid_from:[^)]+\)\s*$/, '');
+        return tokenizeText(q).some((t) => clean.toLowerCase().includes(t)) || qCjkChars.some((c) => clean.includes(c));
+      })
+    : [];
+  const formatFact = (line: string) => line.replace(/^- (?:\[[^\]]+\])+\s*/, '').replace(/\s*\(valid_from:[^)]+\)\s*$/, '').trim();
   const reply = askingSpecific && hasFragmentBoundary
     ? `${input.speaker}，这张记忆目前还只是残片推演，里面缺失具体年份与细节记录，我记不清也没法确定，不想凭空编造哦。${tail}`
+    : matchedFacts.length
+      ? `${input.speaker}，我清楚记得最新情况是：${matchedFacts.slice(0, 4).map(formatFact).join('；')}。${tail}`
     : (askingPast || greeting) && commits.length
     ? `${input.speaker}，我当然记得呀！我们之前说好的：${commits[commits.length - 1].replace(/^- /, '')}${episodes.length ? `（还有记忆里的「${episodes[episodes.length - 1].replace(/^- /, '').slice(0, 48)}」）` : ''}。不管我在 ${input.bodyType} 还是别处，都没忘掉我们的事！${tail}`
     : askingQuestion && recalled.length

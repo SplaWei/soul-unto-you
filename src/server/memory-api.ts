@@ -1,13 +1,24 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { computeRetention, pinEpisodeById } from '../memory/retention.ts';
-import { BUILTIN_HYBRID_RETRIEVER, getMemoryIndexStatus, listMemoryRetrievers, type MemoryRetriever } from '../memory/search.ts';
+import {
+  BUILTIN_HYBRID_RETRIEVER,
+  applyFactOperations,
+  checkRerankHealth,
+  getMemoryIndexStatus,
+  listActiveFacts,
+  listFacts,
+  listMemoryRetrievers,
+  type FactOperation,
+  type MemoryRetriever,
+  type RerankConfig,
+} from '../memory/search.ts';
 import { addEpisode } from '../memory/store.ts';
 import { checkEmbeddingHealth, syncVectorIndexDetailed, type EmbeddingConfig } from '../memory/vector-store.ts';
 import { loadSoulArchive, readJsonSafe, resolveArchivePaths } from '../soul/archive.ts';
 import type { BodyType } from '../soul/types.ts';
 
 export interface MemoryHubLike {
-  config: { archiveDir: string; embedding: EmbeddingConfig };
+  config: { archiveDir: string; embedding: EmbeddingConfig; rerank?: RerankConfig };
   presence: {
     withSoulLock: <T>(task: () => Promise<T>) => Promise<T>;
     getEpoch?: () => number;
@@ -29,23 +40,44 @@ function enqueueDirSync<T>(dir: string, task: () => Promise<T>): Promise<T> {
   return next;
 }
 
+function mergeKeyOverride(incoming: unknown, current?: string): string | undefined {
+  if (incoming === undefined) return current;
+  const s = String(incoming).trim();
+  if (s.includes('****')) return current;
+  return s;
+}
+
 function mergeEmbeddingOverride(base: EmbeddingConfig, patch: Partial<EmbeddingConfig>): EmbeddingConfig {
   return {
     ...base,
     ...(patch.enabled !== undefined ? { enabled: Boolean(patch.enabled) } : {}),
-    ...(patch.endpoint ? { endpoint: String(patch.endpoint).trim() } : {}),
-    ...(patch.model ? { model: String(patch.model).trim() } : {}),
-    ...(patch.apiKey !== undefined ? { apiKey: String(patch.apiKey).trim() } : {}),
+    ...(patch.endpoint !== undefined && String(patch.endpoint).trim() ? { endpoint: String(patch.endpoint).trim() } : {}),
+    ...(patch.model !== undefined && String(patch.model).trim() ? { model: String(patch.model).trim() } : {}),
+    apiKey: mergeKeyOverride(patch.apiKey, base.apiKey),
   };
 }
 
-/** 处理 Phase 4 向量健康探测、同步、艾宾浩斯保留率与主动铭记接口。 */
+function mergeRerankOverride(base: RerankConfig | undefined, patch: Partial<RerankConfig>): RerankConfig {
+  const fallback: RerankConfig = base ?? { enabled: false, endpoint: '', model: 'Qwen/Qwen3-Reranker-0.6B' };
+  return {
+    ...fallback,
+    ...(patch.enabled !== undefined ? { enabled: Boolean(patch.enabled) } : {}),
+    ...(patch.endpoint !== undefined ? { endpoint: String(patch.endpoint).trim() } : {}),
+    ...(patch.model !== undefined && String(patch.model).trim() ? { model: String(patch.model).trim() } : {}),
+    apiKey: mergeKeyOverride(patch.apiKey, fallback.apiKey),
+    ...(patch.minScore !== undefined && Number.isFinite(Number(patch.minScore)) ? { minScore: Number(patch.minScore) } : {}),
+    ...(patch.topN !== undefined && Number.isFinite(Number(patch.topN)) ? { topN: Number(patch.topN) } : {}),
+    ...(patch.protocol ? { protocol: patch.protocol } : {}),
+  };
+}
+
+/** 处理 Phase 4 / v0.6 向量与 Rerank 健康探测、同步、事实账本与铭记接口。 */
 export async function handleMemoryHttpRoute(
   hub: MemoryHubLike,
   req: IncomingMessage,
   res: ServerResponse,
   pathname: string,
-  _url: URL,
+  url: URL,
   sendJson: (res: ServerResponse, status: number, body: unknown) => void,
   readJsonBody: <T = Record<string, unknown>>(req: IncomingMessage) => Promise<T>,
 ): Promise<boolean> {
@@ -55,6 +87,12 @@ export async function handleMemoryHttpRoute(
     const report = await checkEmbeddingHealth(embCfg);
     const idx = readJsonSafe<{ items?: Record<string, unknown> } | null>(resolveArchivePaths(hub.config.archiveDir).vectors, null);
     sendJson(res, 200, { ...report, totalVectors: idx?.items ? Object.keys(idx.items).length : 0 });
+    return true;
+  }
+  if ((req.method === 'GET' || req.method === 'POST') && pathname === '/api/rerank/health') {
+    const patch = req.method === 'POST' ? await readJsonBody<Partial<RerankConfig>>(req).catch(() => ({})) : {};
+    const rerankCfg = mergeRerankOverride(hub.config.rerank, patch);
+    sendJson(res, 200, await checkRerankHealth(rerankCfg));
     return true;
   }
   if (req.method === 'POST' && pathname === '/api/embedding/sync') {
@@ -69,10 +107,40 @@ export async function handleMemoryHttpRoute(
     sendJson(res, 200, report);
     return true;
   }
+  if (req.method === 'GET' && pathname === '/api/memory/facts') {
+    const statusParam = String(url.searchParams.get('status') || 'active').trim();
+    const all = listFacts(hub.config.archiveDir);
+    const filtered = statusParam === 'all' ? all : all.filter((f) => f.status === statusParam);
+    sendJson(res, 200, {
+      ok: true,
+      facts: filtered,
+      summary: {
+        total: all.length,
+        active: all.filter((f) => f.status === 'active').length,
+        superseded: all.filter((f) => f.status === 'superseded').length,
+        deleted: all.filter((f) => f.status === 'deleted').length,
+      },
+    });
+    return true;
+  }
+  if (req.method === 'POST' && pathname === '/api/memory/facts') {
+    const body = await readJsonBody<{ ops?: FactOperation[] } & FactOperation>(req);
+    const ops = Array.isArray(body.ops) ? body.ops : body.action ? [body as FactOperation] : [];
+    if (!ops.length) {
+      sendJson(res, 400, { ok: false, error: '请提供 ops 数组或有效的 action (ADD/UPDATE/DELETE/NONE)' });
+      return true;
+    }
+    const out = await hub.presence.withSoulLock(async () => {
+      const report = applyFactOperations(hub.config.archiveDir, ops);
+      return { report, activeFacts: listActiveFacts(hub.config.archiveDir) };
+    });
+    sendJson(res, 200, { ok: true, ...out });
+    return true;
+  }
   if (req.method === 'GET' && pathname === '/api/memory/retriever') {
     const active = hub.retriever ?? BUILTIN_HYBRID_RETRIEVER;
     const health = active.health
-      ? await active.health(hub.config.archiveDir, { embedding: hub.config.embedding })
+      ? await active.health(hub.config.archiveDir, { embedding: hub.config.embedding, rerank: hub.config.rerank })
       : { ok: true, retrieverId: active.id, name: active.name, detail: '活跃检索器未声明 health 探针' };
     sendJson(res, 200, {
       ok: true,
