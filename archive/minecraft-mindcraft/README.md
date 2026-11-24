@@ -38,7 +38,7 @@ Forge / 大型整合包常修改网络数据包，容易导致 Mineflayer 握手
    ```
 4. 运行本目录预检脚本确认中枢路由与 MC 局域网端口畅通：
    ```powershell
-   node adapters/minecraft-mindcraft/check-bridge.ts --mc-port 55916 --smoke
+   node archive/minecraft-mindcraft/check-bridge.ts --mc-port 55916 --smoke
    ```
 5. 启动 Mindcraft：
    ```bash

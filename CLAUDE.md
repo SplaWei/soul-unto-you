@@ -3,7 +3,7 @@
 > 本文件供 Claude Code 及 DeepSeek-V4.1-Flash-1017 等红队审查模型在本仓库执行架构评审、对齐审查与对抗性漏洞排查时加载。
 
 ## 1. 启动第一步（节省上下文）
-1. 先读 [docs/CURRENT\_STATE.md](https://www.google.com/search?q=docs/CURRENT_STATE.md)、[AGENTS.md](AGENTS.md) 与 [docs/V06\_EXECUTION\_GUIDE.md](https://www.google.com/search?q=docs/V06_EXECUTION_GUIDE.md) 掌握当前基线、红线与本轮 Task 范围。
+1. 先读 [docs/CURRENT_STATE.md](./docs/CURRENT_STATE.md)、[AGENTS.md](./AGENTS.md) 与 [docs/V06_EXECUTION_GUIDE.md](./docs/V06_EXECUTION_GUIDE.md) 掌握当前基线、红线与本轮 Task 范围。
 2. 再按需读取对应模块与 `git diff`，禁止猜测未读代码或凭记忆引用行号。
 3. 本仓库处于只读审查优先模式：未获用户明确批准前，**只输出审计报告，不擅自修改源码或提交 Git**。
 

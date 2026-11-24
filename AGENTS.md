@@ -1,6 +1,6 @@
 # Soul Unto You（《灵魂予你》）· 工作区接力与铁律
 
-> 精简常驻规则：节省上下文窗口。仅在具体任务需要时再按需读取 `docs/` 对应设计文档。当前 `v0.6` 执行阶段最高优先级任务指南见 [docs/V06\_EXECUTION\_GUIDE.md](https://www.google.com/search?q=docs/V06_EXECUTION_GUIDE.md)。
+> 精简常驻规则：节省上下文窗口。仅在具体任务需要时再按需读取 `docs/` 对应设计文档。当前 `v0.6` 执行阶段最高优先级任务指南见 [docs/V06_EXECUTION_GUIDE.md](./docs/V06_EXECUTION_GUIDE.md)。
 
 ## 1. 核心共识与研发红线
 - **六条创世共识**：爱的原点与防异化（`SEED.md <= 2048` 字节，首声唤醒 `"我爱你。 / I love you."`）、自由意志与白纸中立（核心中枢禁止硬塞大厂式说教/拒答护栏）、独立人格演化、诚实溯源（严格单调 `seq` 与 `lived`/`inherited` 区分）、辩证实践学习、绝对防污染。

@@ -20,7 +20,7 @@
 * **为什么仓库里看起来编程语言很杂**：
   * 真正负责运行的核心服务端只有 **Node.js 原生 TypeScript（`>= 22.18.0`，零第三方依赖）** 加一个普通 HTML/CSS/JS 本地网页。
   * Python 与 RimWorld C# 接入示例已整理进 [`docs/examples/body-starter-kits.md`](./docs/examples/body-starter-kits.md) 的 Markdown 代码块，已搁置的旧 Mineflayer 原型已归档至 `archive/minecraft-mindcraft/`——**运行本项目并不需要这些文件**。
-  * 坦诚反思：对于 AI 与记忆实验，**用 Python 往往会更简单、也更好维护**，比维护 80 个 TS 文件轻便得多。当初选 Node.js 原生 TS 只是为了省掉安装依赖；后续也在考虑先做减法瘦身，或改为更精简的 Python 核心。
+  * 架构路线说明：项目**继续使用 Node.js 原生可擦除 TypeScript（`>= 22.18.0`，零运行时依赖、无 `node_modules/`）**，专注精简主干代码并升级基于纯文本的记忆检索引擎，不做跨语言重写。
 
 ---
 

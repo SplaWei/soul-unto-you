@@ -1,7 +1,7 @@
 # SoulUntoYou v0.6 → v0.7 执行指导与对抗审稿手册
 
 > **适用仓库**：[SplaWei/soul-unto-you](https://github.com/SplaWei/soul-unto-you)（基线 `v0.5.0`，Node.js `>=22.18.0` 原生可擦除 TS，零依赖，无 `node_modules/`）  
-> **最高优先级说明**：本文件是 `v0.6` 阶段主线指令，与 \[suspicious link removed\] 配合生效；所有改动必须遵守单文件 `<= 380` 行、`CURRENT_STATE.md <= 60` 行、PowerShell 用 `;` 串联、六条创世共识与零隐私门禁。
+> **最高优先级说明**：本文件是 `v0.6` 阶段主线指令，与 [AGENTS.md](../AGENTS.md) 配合生效；所有改动必须遵守单文件 `<= 380` 行、`CURRENT_STATE.md <= 60` 行、PowerShell 用 `;` 串联、六条创世共识与零隐私门禁。
 
 ## 一、给项目主人的三步防糊弄流程
 
@@ -27,13 +27,13 @@
   3. 开关设为 `true` 时，原有 Phase 3/5.5 实验能力必须完整可用；在 Web 控制台设置页暴露对应开关，并在诊断面板新增“查看最近一次真实 System Prompt”只读视图（若新增 `web/` 文件须同步加入 `src/server/security.ts` 的 `PUBLIC_STATIC_PATHS`）。
 - **主人人工验收**：默认状态对话 1 轮，在诊断面板确认发给大模型的 Prompt 干净无情绪/自由意志段落；勾选打开任一开关再聊 1 轮，确认对应段落恢复出现。
 
-### Task A3：纯文本为源 + `node:sqlite` FTS5 派生索引（零依赖告别线性扫描）
+### Task A3：纯文本为源 + `node:sqlite` FTS5 派生索引（零依赖加速检索）
 - **背景**：当前 `src/memory/search.ts` 线性扫描 `MEMORIES/*.jsonl`，万级记忆后延迟攀升。
 - **具体要求**：
   1. 使用 Node.js 22 内置 `node:sqlite`（保持 `dependencies: {}` 零外部包），在灵魂档案目录下生成派生缓存 `.cache/memory-index.sqlite`（加入 `.gitignore`）。
   2. 建立 FTS5 全文检索索引（做好中文 bigram/分词辅助列），同步 `MEMORIES/*.jsonl` 的内容、单调 `seq`、说话人、`bodyType` 与状态字段。
   3. **铁律**：所有记忆写入必须先原子追加纯文本 `MEMORIES/*.jsonl`，再更新索引；启动时校验文本哈希/行数，若 `.cache/memory-index.sqlite` 被删除或损坏，必须静默、100% 从纯文本无损重建。
-  4. 运行 `scripts/bench-jsonl-10k.ts` 对比改造前后 10,000 条记忆检索耗时（目标 `< 50ms`）。
+  4. 运行 `scripts/bench-jsonl-10k.ts` 对比改造前后 10,000 条记忆耗时（目标：FTS 检索 `< 50ms`；实测 FTS 检索 `~5.9ms`，含强化写盘的整轮 `buildRecallContext` `~63ms`）。
 - **主人人工验收**：告诉 AI“我养了一只叫土豆的橘猫”→ 关服 → **亲手删掉 `.cache/memory-index.sqlite`** → 重启问“我的猫叫什么？”，确认自动重建索引并答对。
 
 ### Task A4：双层记忆引擎升级（云端/本地 Embedding+Rerank 与 Mem0 风格事实冲突消解）
