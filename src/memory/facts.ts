@@ -97,6 +97,28 @@ export function getSupersededFactSourceSeqs(dir: string): Set<number> {
   return out;
 }
 
+function findDeleteTarget(
+  all: MemoryFact[],
+  preExistingIds: Set<string>,
+  op: FactOperation,
+  defaultSubject: string,
+): MemoryFact | undefined {
+  const isDeletable = (f: MemoryFact) => f.status === 'active' && preExistingIds.has(f.id);
+  const targetId = String(op.targetId || '').trim();
+  if (targetId) return all.find((f) => isDeletable(f) && f.id === targetId);
+  const key = op.fact ? factNormKey(op.fact) : '';
+  if (!key) return undefined;
+  const exact = all.find((f) => isDeletable(f) && factNormKey(f.fact) === key);
+  if (exact) return exact;
+  const slot = normSlot(op.category, op.subject, defaultSubject);
+  if (!slot) return undefined;
+  return all.find((f) => {
+    if (!isDeletable(f) || normSlot(f.category, f.subject, defaultSubject) !== slot) return false;
+    const fKey = factNormKey(f.fact);
+    return fKey.includes(key) || key.includes(fKey);
+  });
+}
+
 function findMatchingActiveTarget(all: MemoryFact[], op: FactOperation, defaultSubject: string): MemoryFact | undefined {
   const targetId = String(op.targetId || '').trim();
   if (targetId) {
@@ -128,6 +150,11 @@ export function applyFactOperations(
 
   const nowIso = new Date(options.nowMs ?? Date.now()).toISOString();
   const defaultSubject = String(options.defaultSubject || '同行者').trim();
+  const preExistingIds = new Set(all.filter((f) => f.status === 'active').map((f) => f.id));
+  const orderedOps = [
+    ...ops.filter((op) => String(op.action || '').toUpperCase() === 'DELETE'),
+    ...ops.filter((op) => String(op.action || '').toUpperCase() !== 'DELETE'),
+  ];
   let added = 0;
   let updated = 0;
   let deleted = 0;
@@ -151,13 +178,13 @@ export function applyFactOperations(
     return rec;
   };
 
-  for (const op of ops) {
+  for (const op of orderedOps) {
     const action = String(op.action || 'NONE').toUpperCase() as FactAction;
     if (action === 'NONE') { none += 1; continue; }
     const provenance: Provenance = op.provenance || 'verified';
 
     if (action === 'DELETE') {
-      const target = findMatchingActiveTarget(all, op, defaultSubject);
+      const target = findDeleteTarget(all, preExistingIds, op, defaultSubject);
       if (!target) { none += 1; continue; }
       target.status = 'deleted';
       target.superseded_by = null;
@@ -231,7 +258,7 @@ export function buildDreamFactsPromptBlock(activeFacts: MemoryFact[]): string {
       ? activeFacts.slice(-30).map((f) => `- [id:${f.id}]${f.category ? `[${f.category}]` : ''} ${f.fact}`)
       : ['- （当前暂无已归档有效事实）']),
     '请在 JSON 中附带 `"facts"` 数组（无变更可输出 `[]`），每项格式：`{ "action": "ADD|UPDATE|DELETE|NONE", "targetId": "UPDATE/DELETE时填已有fact_xxx", "category": "residence|drink_preference|food_preference|allergy|pet|work|other", "fact": "原子陈述句", "sourceSeqs": [seq] }`',
-    '重要规则：1) 同一句话含多个事实（如住址+饮品）必须拆成多条；2) 若同一批经历内先出现旧事实、后出现冲突新事实（例如先说住上海/喝美式，后说搬去成都/改喝拿铁），严禁只留新值或误留旧值！必须按 seq 先输出旧事实 ADD（带旧 seq），再输出新事实 UPDATE（带新 seq）。',
+    '重要规则：1) 同一句话含多个事实（如住址+饮品）必须拆成多条；2) 若同一批经历内先出现旧事实、后出现冲突新事实（例如先说住上海/喝美式，后说搬去成都/改喝拿铁），严禁只留新值或误留旧值！必须按 seq 先输出旧事实 ADD（带旧 seq），再输出新事实 UPDATE（带新 seq）；3) 只提取同行者本人第一人称、已经发生的事实；电影/电视/他人/假设/玩笑不算；不确定就输出 []，宁可少记不可记错。',
   ];
   return lines.join('\n');
 }
@@ -255,7 +282,7 @@ export function parseDreamFactOps(raw: unknown): FactOperation[] | null {
       ? obj.sourceSeqs.map(Number).filter((n) => Number.isInteger(n) && n > 0)
       : undefined;
     if ((action === 'ADD' || action === 'UPDATE') && !fact) continue;
-    if (action === 'DELETE' && !targetId && !fact && !category) continue;
+    if (action === 'DELETE' && !targetId && !fact) continue;
     out.push({
       action,
       ...(fact ? { fact } : {}),

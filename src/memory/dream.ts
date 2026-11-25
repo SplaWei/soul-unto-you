@@ -227,8 +227,8 @@ export async function runDreamConsolidation(
       coBecomingAdded = res.coBecomingAdded;
     }
 
-    const factOps = validatedPlan?.facts !== undefined
-      ? validatedPlan.facts
+    const factOps = validatedPlan !== null
+      ? (validatedPlan.facts ?? [])
       : extractHeuristicFactOps(snap.pending, listActiveFacts(archiveDir), latestMeta.partnerName);
     const factRep = applyFactOperations(archiveDir, factOps, {
       nowMs,
