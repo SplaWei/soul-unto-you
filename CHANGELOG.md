@@ -2,6 +2,15 @@
 
 All notable changes to **SoulUntoYou（《灵魂予你》/《灵魂与你》）** will be documented in this file.
 
+## [0.6.0] - 2026-11-25
+
+### Changed & Added — Memory Engine Upgrade, Clean Default Context & 30-Turn Eval
+- **Leaner Repo & Zero Dependencies**: Removed legacy `src/server/mc-manager.ts` and `check:mc`, moved Python/RimWorld C# snippets into `docs/examples/body-starter-kits.md`, excluded the shelved Mineflayer prototype and internal dev/audit files from the public GitHub release, and kept `"dependencies": {}` on Node.js `>= 22.18.0` native erasable TypeScript.
+- **Experimental Switches Off by Default (`src/server/config.ts`, `percept-pipeline.ts`, `web/`)**: Added `experimental` flags (`enableEmotion`, `enableInnerLife`, `enableFreeWill`, `enableHeartbeat`, `enableResurrection`), all `false` by default to keep default System Prompts clean while retaining all code; exposed toggles in the Web UI and added latest System Prompt inspection in Diagnostics.
+- **Plain-Text Source of Truth + `node:sqlite` FTS5 Index (`src/memory/sqlite-*.ts`)**: Added zero-dep derived `.cache/memory-index.sqlite` FTS5 index with CJK tokenization, SHA-256 tamper/staleness checks, silent auto-rebuild on deletion/corruption/schema upgrade, and skipped-line reporting while keeping `MEMORIES/*.jsonl` as the sole source of truth.
+- **Hybrid Recall & Mem0-Style Fact Supersession (`src/memory/facts.ts`, `fact-extractor.ts`, `reranker.ts`, `dream.ts`)**: Upgraded `/v1/embeddings` and HTTP/DashScope Rerank support with automatic offline FTS5 fallback when unconfigured; added `MEMORIES/facts.jsonl` (`ADD`/`UPDATE`/`DELETE`/`NONE`, `active`/`superseded`/`deleted`) with P0 guards against third-party/movie false extractions and natural move-out negation bugs; documented `MemoryRetriever` (`docs/MEMORY-RETRIEVER-PROTOCOL.md`).
+- **30-Turn Real-LLM Anti-Hallucination Eval (`scripts/eval-real-llm.ts`)**: Added `npm run eval:llm` benchmark covering 30-to-100-turn recall, cross-body continuity, fact supersession, and honest "I don't know" refusals (verified locally with `deepseek-chat`: 11/11 checks passed, 0 leaked internal tags, 14.83 ms avg retrieval).
+
 ## [0.5.0] - 2026-11-21
 
 ### Added & Hardened — Phase 5.5 + Red-Team Security & Integrity Audit

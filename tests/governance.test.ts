@@ -130,7 +130,7 @@ test('工程门禁 4：跨模块 Phase/Version 标识与测试入口防漂移一
   const covenantPhase = covenant.match(/HUB_PHASE\s*=\s*['"]([^'"]+)['"]/)?.[1];
   const hubVersion = covenant.match(/HUB_VERSION\s*=\s*['"]([^'"]+)['"]/)?.[1];
   assert.ok(covenantPhase, 'covenant.ts 必须导出有效的 HUB_PHASE 版本号');
-  assert.equal(hubVersion, '0.5.0', 'covenant.ts HUB_VERSION 必须为 0.5.0');
+  assert.equal(hubVersion, '0.6.0', 'covenant.ts HUB_VERSION 必须为 0.6.0');
   assert.equal(pkg.version, hubVersion, 'package.json version 必须与 HUB_VERSION 一致');
   assert.equal(pkg.engines?.node, '>=22.18.0', 'package.json engines.node 必须锁定 >=22.18.0');
   assert.ok(mcp.includes('HUB_VERSION'), 'mcp.ts serverInfo.version 必须复用 HUB_VERSION');

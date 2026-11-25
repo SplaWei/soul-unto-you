@@ -4,8 +4,8 @@
  */
 
 export const SPEC_VERSION = '1.0' as const;
-export const HUB_PHASE = '5.5' as const;
-export const HUB_VERSION = '0.5.0' as const;
+export const HUB_PHASE = '6.0' as const;
+export const HUB_VERSION = '0.6.0' as const;
 
 export const SEED_MAX_BYTES = 2048;
 

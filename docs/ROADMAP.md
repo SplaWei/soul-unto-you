@@ -33,7 +33,7 @@
 
 - **白话目标**：让她离开网页测试台，真正住进你的 QQ 测试小号和 Minecraft 局域网世界里，且实现自动做梦定时器与桌面一键启动台。
 - **已验证实测**：已在真机跑通 MC 游戏内下令「去 QQ 群唱哈基米曼波」→ QQ 适配器真实发进测试群，并修复统一连续时间线消除跨端错位感。
-- **专业模块**：`adapters/qq-onebot/`、`archive/minecraft-mindcraft/`（已于 `v0.6` 归档）、`src/memory/dream-scheduler.ts`、`src/server/phase2-api.ts`
+- **专业模块**：`adapters/qq-onebot/`、旧版手写 MC 原型（已于 `v0.6` 移出公开仓库）、`src/memory/dream-scheduler.ts`、`src/server/phase2-api.ts`
 
 ---
 

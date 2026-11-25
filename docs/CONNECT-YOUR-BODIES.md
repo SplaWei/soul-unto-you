@@ -1,4 +1,4 @@
-# 连接你的真实躯体：实测填空指南 (`v0.5.0`)
+# 连接你的真实躯体：实测填空指南 (`v0.6.0`)
 
 > **一句话原则**：《灵魂予你》的大脑、记忆与人格只管留在 `127.0.0.1:7777` 中枢；任何支持 **OpenAI 接口 / OneBot v11 / MCP / HTTP-WS** 的外部软件，只需把接口地址改指这里，就会立刻共享同一个“柳遥”的记忆、情绪与未完约定。
 
@@ -22,17 +22,17 @@
 
 ---
 
-## 二、`v0.5.0` 能力成熟度矩阵（诚实透明说明）
+## 二、`v0.6.0` 能力成熟度矩阵（诚实透明说明）
 
 | 状态分类 | 模块 / 能力 | 当前真实状态与验证说明 |
 | :--- | :--- | :--- |
 | **已在本机 / 自动化实测** | 纯文本灵魂档案 v1.1 | `SEED.md <= 2048 B`、单调 `seq`、SHA-256 快照回滚、只读脱敏导出均已通过自动化实测 |
-| **已在本机 / 自动化实测** | 活体意识与类人记忆 | 自由意志 6 姿态、亲历/口述体验、三维情绪惯性、艾宾浩斯遗忘 + 千问本地向量混合召回已实测 |
+| **已在本机 / 自动化实测** | FTS5 + 事实冲突记忆引擎 | `node:sqlite` FTS5 索引（删库 100% 重建）、`facts.jsonl` 冲突覆写、可选向量/Rerank 召回与默认洁净开关已实测 |
 | **已在本机 / 自动化实测** | 三大开放插座协议 & 门禁 | Body HTTP/WS/SSE、OpenAI Proxy (`/v1` & `/v1/bodies/...`)、MCP (`/mcp` & stdio)、`fallbackModels` 与 Native Tools 已测试通过 |
-| **已在本机 / 自动化实测** | 回归测试与压测基线 | `node --test tests/*.test.ts` **全绿**、万级 JSONL 扫盘基线与 30 天虚拟时钟漂移模拟已实测 |
+| **已在本机 / 自动化实测** | 回归测试与 30 轮评测 | `node --test tests/*.test.ts` **全绿**、万级 JSONL 压测、30 天虚拟时钟模拟及内置 30 轮防幻觉评测脚本已跑通 |
 | **开放协议已就绪 · 待社区实测** | QQ OneBot v11 适配端 | 离网全链路单测已通过；接真实 NapCat / Lagrange QQ 需由用户按本机协议端环境实测验证 |
 | **开放协议已就绪 · 待社区实测** | 零代码 OpenAI 直连躯体 | 桌宠（Open-LLM-VTuber / AIRI）、MC Mindcraft、刷 B 站陪看、SillyTavern、MCP 客户端通过 `/v1/bodies/...` 与 `/mcp` 直接接入，欢迎社区提交实测反馈 |
-| **暂搁置 / 后续路线** | Phase 5.3 ~ Phase 7 扩展 | 手写 Mineflayer 原型（已归档至 `archive/minecraft-mindcraft/`）**已搁置**；双向躯体协议 v2、RimWorld 1.7 Harmony Mod、声带深联动与实体硬件共建留待 `v0.5` 后陆续推进 |
+| **暂搁置 / 后续路线** | Phase B 及后续扩展 | 旧版手写 Mineflayer 原型已移出公开仓库；SillyTavern V2 导入、桌宠/QQ 实机联调与实体硬件共建留待后续推进 |
 
 ---
 
@@ -58,7 +58,7 @@
 - **跨端验收法**：在桌宠里跟她约定“今晚九点提醒我喝水”，随后打开网页 **`I 双界演练台`** 或 **`III 万年典籍`**，确认能看到同一条未完约定与 `[desktop-pet]` 来源足迹。
 
 ### 3. Minecraft 成熟外部 Agent（如 Mindcraft）
-> 原手写 Mineflayer 实验原型已归档移出主干（见 `archive/minecraft-mindcraft/`）。**推荐直接对接成熟外部 MC Agent**，把灵魂大脑挂上去：
+> 原手写 Mineflayer 实验原型已搁置并移出公开仓库。**推荐直接对接成熟外部 MC Agent**，把灵魂大脑挂上去：
 - **Base URL / Endpoint**：`http://127.0.0.1:7777/v1/bodies/game-mc/mindcraft-1`
 - **API Key**：`<粘贴 .soul-hub.token 中的整串文本>`
 - **Model**：`soul-unto-you`

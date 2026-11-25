@@ -1,8 +1,8 @@
-# SoulUntoYou · Beginner's Guide (`v0.5.0`)
+# SoulUntoYou · Beginner's Guide (`v0.6.0`)
 
 > **English** | [简体中文](./BEGINNER-GUIDE.zh-CN.md) | [Back to README](../README.md) | [Connect Real Apps](./CONNECT-YOUR-BODIES.md)
 
-> **Honest note before you start**: This is an early personal prototype. Its memory search is currently basic (simple keyword matching + optional vector similarity), so do not expect production-level accuracy yet. This guide simply helps you run it locally and inspect the plain-text files yourself.
+> **Honest note before you start**: This is an early personal prototype. `v0.6.0` adds a rebuildable `node:sqlite` FTS5 index, `facts.jsonl` conflict updates, and optional embedding/rerank support, but it is still not production-grade. This guide simply helps you run it locally and inspect the plain-text files yourself.
 
 ---
 
