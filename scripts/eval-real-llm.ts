@@ -252,7 +252,9 @@ async function runCli(args: string[]): Promise<void> {
     console.log(formatCompanionMarkdownReport(rep));
     if (outPath) process.stderr.write(`成绩单已保存至: ${path.relative(REPO_ROOT, path.resolve(outPath))}\n`);
   }
-  if (rep.leakedTagCount > 0 || !rep.experimentalClean) process.exitCode = 1;
+  if (rep.leakedTagCount > 0 || !rep.experimentalClean || (rep.overallCheckTotal > 0 && rep.overallCheckPassed < rep.overallCheckTotal)) {
+    process.exitCode = 1;
+  }
 }
 
 const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;

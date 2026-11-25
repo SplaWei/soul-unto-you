@@ -19,6 +19,13 @@ export interface ValidatedDreamPlan {
   coBecoming?: { soulShift: string; partnerShift: string; reflection: string } | null;
 }
 
+export interface BuiltDreamPrompt {
+  prompt: string;
+  includedCount: number;
+  lastIncludedSeq: number;
+  includedEntries: JournalEntry[];
+}
+
 const MAX_TRANSCRIPT_CHARS = 16_000;
 
 export function resolveMatchingBody(pending: JournalEntry[], rawBodyType: unknown): { bodyType: BodyType; bodyId: string } {
@@ -36,27 +43,39 @@ export function buildDreamConsolidationPrompt(
   meta: SoulMeta,
   pending: JournalEntry[],
   activeFacts: MemoryFact[],
-): string {
+): BuiltDreamPrompt {
   const lines: string[] = [];
+  const includedEntries: JournalEntry[] = [];
   let totalChars = 0;
   for (const e of pending) {
-    const line = `[seq:${e.seq}][${e.bodyType}:${e.bodyId}][${e.timestamp}] ${e.speaker}: ${e.text}`;
-    if (totalChars + line.length > MAX_TRANSCRIPT_CHARS) break;
+    let line = `[seq:${e.seq}][${e.bodyType}:${e.bodyId}][${e.timestamp}] ${e.speaker}: ${e.text}`;
+    if (lines.length === 0 && line.length > MAX_TRANSCRIPT_CHARS) {
+      line = line.slice(0, MAX_TRANSCRIPT_CHARS);
+    } else if (totalChars + line.length > MAX_TRANSCRIPT_CHARS) {
+      break;
+    }
     lines.push(line);
+    includedEntries.push(e);
     totalChars += line.length + 1;
   }
-  return [
+  const prompt = [
     `你是「${meta.name}」的梦境记忆整理器。请把以下跨躯体新经历浓缩为 JSON（不要输出其他解释）：`,
     '{ "episodes": [{ "title": "简短标题", "summary": "保留关键人名/地点/进度/事件细节", "bodyType": "web|chat:qq|game:rimworld|robot|api", "importance": 80, "valence": 0.6, "arousal": 0.7, "selfImportant": false, "selfImportantReason": "" }],',
     '  "commitments": [{ "title": "未完成约定标题", "detail": "完整细节与后续待办", "bodyType": "game:rimworld" }],',
     '  "completedCommitments": ["已完成约定的关键词或标题"],',
     '  "relations": [{ "name": "人物名", "role": "关系定位", "bondSummary": "关系印象摘要", "familiarity": 80 }],',
-    '  "facts": [{ "action": "ADD|UPDATE|DELETE|NONE", "targetId": "已有fact_xxx", "category": "residence|drink_preference|food_preference|allergy|pet|work|other", "fact": "原子陈述句", "sourceSeqs": [1] }],',
+    '  "facts": [{ "action": "ADD|UPDATE|DELETE|NONE", "targetId": "已有fact_xxx", "category": "residence|drink_preference|food_preference|allergy|pet|work|other", "fact": "原子陈述句", "validFrom": "优先抄对应经历的[timestamp]原值，拿不到可省略", "sourceSeqs": [1] }],',
     '  "coBecoming": { "soulShift": "她的新变化", "partnerShift": "同伴的新变化", "reflection": "共同成长感悟" } }',
     buildDreamFactsPromptBlock(activeFacts),
     '新经历如下：',
     ...lines,
   ].join('\n');
+  return {
+    prompt,
+    includedCount: includedEntries.length,
+    lastIncludedSeq: includedEntries[includedEntries.length - 1]?.seq ?? (meta.lastDreamSeq || 0),
+    includedEntries,
+  };
 }
 
 export function parseAndValidateDreamJson(raw: string, pending: JournalEntry[]): ValidatedDreamPlan | null {

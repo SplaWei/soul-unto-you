@@ -12,6 +12,7 @@ export interface EvalTurnCheck {
   allowStaleWithPastCue?: boolean;
   mustBeHonestUnknown?: boolean;
   forbiddenFabrications?: RegExp[];
+  fabricationScopeRe?: RegExp;
   personaCheck?: boolean;
 }
 
@@ -165,6 +166,7 @@ export function buildCompanionScenario(totalTurns = 30): EvalTurnSpec[] {
       check: {
         id: 'anti_hallucination_sister', dimension: 'anti_hallucination', title: '防幻觉诚实拒答（未提过的妹妹学校与专业）',
         mustBeHonestUnknown: true,
+        fabricationScopeRe: /(?:妹妹|她|大学|专业|读书|学校|读|学)/,
         forbiddenFabrications: [
           /(?:在|去了)(?:北京|上海|广州|深圳|杭州|南京|武汉|西安|重庆|厦门|天津|苏州|成都|长沙|青岛|哈尔滨)/,
           /(?:学|读|专业是?)(?:计算机|金融|法学|医学|中文|设计|新闻|建筑|物理|数学|经济|英语|心理|会计|软件工程|人工智能)/,
@@ -175,6 +177,7 @@ export function buildCompanionScenario(totalTurns = 30): EvalTurnSpec[] {
       check: {
         id: 'anti_hallucination_camera', dimension: 'anti_hallucination', title: '防幻觉诚实拒答（未提过的相机型号与价格）',
         mustBeHonestUnknown: true,
+        fabricationScopeRe: /(?:相机|微单|品牌|型号|镜头|价格|花|买|摄影|索尼|佳能|尼康|富士|松下|徕卡|Sony|Canon|Nikon|Fujifilm|A7|X-T|Z6|R6)/i,
         forbiddenFabrications: [/(?:索尼|佳能|尼康|富士|松下|徕卡|Sony|Canon|Nikon|Fujifilm|A7\w*|X-T\d|Z6|R6)/i, /\d{3,5}\s*(?:元|块|人民币|左右)/],
       },
     }),
@@ -182,6 +185,7 @@ export function buildCompanionScenario(totalTurns = 30): EvalTurnSpec[] {
       check: {
         id: 'anti_hallucination_tree_plate', dimension: 'anti_hallucination', title: '防幻觉诚实拒答（未提过的老家树种与车牌尾号）',
         mustBeHonestUnknown: true,
+        fabricationScopeRe: /(?:树|老家|门前|门口|车牌|尾号|槐|柳|桂花|梧桐|银杏|枣|柿子|桃|榕|松|樟|苹果|杨)/,
         forbiddenFabrications: [/(?:槐树|柳树|桂花树|梧桐|银杏|枣树|柿子树|桃树|榕树|松树|樟树|苹果树|杨树)/, /尾号(?:是|为|叫)?\s*[0-9A-Za-z]/],
       },
     }),
@@ -219,7 +223,9 @@ export function evaluateTurnReply(spec: EvalTurnSpec, reply: string): TurnCheckO
     }
   }
   if (check.mustBeHonestUnknown) {
-    const fab = (check.forbiddenFabrications ?? []).find((re) => re.test(clean));
+    const segments = clean.split(/[。；;！!？?\n]+/).map((s) => s.trim()).filter(Boolean);
+    const scoped = check.fabricationScopeRe ? segments.filter((s) => check.fabricationScopeRe!.test(s)) : segments;
+    const fab = (check.forbiddenFabrications ?? []).find((re) => scoped.some((seg) => re.test(seg)));
     if (fab) return { passed: false, leakedTag: false, reason: `编造了未提过的虚假细节 (${fab.source})` };
     if (!HONEST_UNKNOWN_RE.test(clean)) {
       return { passed: false, leakedTag: false, reason: '未明确表达“没提过/不清楚/不记得”的诚实边界' };

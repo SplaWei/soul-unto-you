@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import http from 'node:http';
 import test from 'node:test';
+import { buildDreamConsolidationPrompt } from '../src/memory/dream-parser.ts';
 import { runDreamConsolidation } from '../src/memory/dream.ts';
 import {
-  applyFactOperations, listActiveFacts, listFacts, parseDreamFactOps,
+  applyFactOperations, formatActiveFactsPromptSection, listActiveFacts, listFacts, parseDreamFactOps,
 } from '../src/memory/facts.ts';
-import { appendJournal, initSoulArchive } from '../src/soul/archive.ts';
+import { appendJournal, initSoulArchive, readMetaOrRecover } from '../src/soul/archive.ts';
+import type { MemoryFact } from '../src/soul/types.ts';
 import { createTestIdentity, withSandboxArchive, withTestHub } from './helpers/sandbox.ts';
 
 async function startOmittedFactsLlmServer() {
@@ -128,4 +131,45 @@ test('P0-4 真实 LLM 响应漏写 facts 字段时绝不回退正则提取器，
   } finally {
     await srv.close();
   }
+});
+
+test('P2-1/2/3/4 超长梦境截断游标、validFrom 透传、缺字段容错与评测失败退出码', async () => {
+  const ops = parseDreamFactOps([
+    { action: 'ADD', category: 'residence', fact: '同行者住在成都', validFrom: '2025-05-01T10:00:00.000Z' },
+    { action: 'ADD', category: 'work', fact: '同行者是设计师', validFrom: 'not-a-date' },
+  ]);
+  assert.equal(ops?.[0]?.validFrom, '2025-05-01T10:00:00.000Z');
+  assert.equal(ops?.[1]?.validFrom, undefined);
+
+  const malformed = [
+    { id: 'f1', seq: 1, fact: '同行者住在成都', status: 'active', superseded_by: null, provenance: 'verified', updated_at: '' } as unknown as MemoryFact,
+    { id: 'f2', seq: 2, status: 'active', superseded_by: null, provenance: 'verified', updated_at: '', valid_from: '2025-01-01' } as unknown as MemoryFact,
+  ];
+  const sec = formatActiveFactsPromptSection(malformed);
+  assert.ok(sec.includes('同行者住在成都 (valid_from: 未知)'));
+  assert.equal(sec.includes('f2'), false);
+
+  const srv = await startOmittedFactsLlmServer();
+  try {
+    await withTestHub({ prefix: 'soul-p2-trunc-', llmBaseUrl: `${srv.origin}/v1` }, async ({ hub, dir }) => {
+      const longText = '今天散步聊了很久的日常风景。'.repeat(650);
+      const j1 = appendJournal(dir, { bodyId: 'w1', bodyType: 'web', speaker: '同行者', role: 'partner', text: longText, provenance: 'verified' });
+      const j2 = appendJournal(dir, { bodyId: 'w1', bodyType: 'web', speaker: '同行者', role: 'partner', text: longText, provenance: 'verified' });
+      const built = buildDreamConsolidationPrompt(readMetaOrRecover(dir), [j1, j2], []);
+      assert.equal(built.includedCount, 1);
+      assert.equal(built.lastIncludedSeq, j1.seq);
+
+      const d1 = await runDreamConsolidation(dir, { llm: hub.ctx.llm, lock: hub.ctx.presence });
+      assert.equal(d1.processedEntries, 2);
+      assert.equal(d1.lastDreamSeq, j1.seq);
+      const d2 = await runDreamConsolidation(dir, { llm: hub.ctx.llm, lock: hub.ctx.presence });
+      assert.equal(d2.processedEntries, 1);
+      assert.equal(d2.lastDreamSeq, j2.seq);
+    });
+  } finally {
+    await srv.close();
+  }
+
+  const cli = spawnSync(process.execPath, ['scripts/eval-real-llm.ts', '--no-save'], { encoding: 'utf8' });
+  assert.equal(cli.status, 1, '存在 FAIL 检查点时 CLI 必须返回非零退出码');
 });

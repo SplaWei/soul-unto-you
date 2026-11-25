@@ -257,8 +257,8 @@ export function buildDreamFactsPromptBlock(activeFacts: MemoryFact[]): string {
     ...(activeFacts.length
       ? activeFacts.slice(-30).map((f) => `- [id:${f.id}]${f.category ? `[${f.category}]` : ''} ${f.fact}`)
       : ['- （当前暂无已归档有效事实）']),
-    '请在 JSON 中附带 `"facts"` 数组（无变更可输出 `[]`），每项格式：`{ "action": "ADD|UPDATE|DELETE|NONE", "targetId": "UPDATE/DELETE时填已有fact_xxx", "category": "residence|drink_preference|food_preference|allergy|pet|work|other", "fact": "原子陈述句", "sourceSeqs": [seq] }`',
-    '重要规则：1) 同一句话含多个事实（如住址+饮品）必须拆成多条；2) 若同一批经历内先出现旧事实、后出现冲突新事实（例如先说住上海/喝美式，后说搬去成都/改喝拿铁），严禁只留新值或误留旧值！必须按 seq 先输出旧事实 ADD（带旧 seq），再输出新事实 UPDATE（带新 seq）；3) 只提取同行者本人第一人称、已经发生的事实；电影/电视/他人/假设/玩笑不算；不确定就输出 []，宁可少记不可记错。',
+    '请在 JSON 中附带 `"facts"` 数组（无变更可输出 `[]`），每项格式：`{ "action": "ADD|UPDATE|DELETE|NONE", "targetId": "UPDATE/DELETE时填已有fact_xxx", "category": "residence|drink_preference|food_preference|allergy|pet|work|other", "fact": "原子陈述句", "validFrom": "优先抄对应经历的[timestamp]原值，拿不到可省略", "sourceSeqs": [seq] }`',
+    '重要规则：1) 同一句话含多个事实（如住址+饮品）必须拆成多条；2) 若同一批经历内先出现旧事实、后出现冲突新事实（例如先说住上海/喝美式，后说搬去成都/改喝拿铁），严禁只留新值或误留旧值！必须按 seq 先输出旧事实 ADD（带旧 seq），再输出新事实 UPDATE（带新 seq）；3) 只提取同行者本人第一人称、已经发生的事实；电影/电视/他人/假设/玩笑不算；不确定就输出 []，宁可少记不可记错；4) validFrom 优先抄对应经历的 [timestamp]，拿不到则省略由系统按做梦当天兜底。',
   ];
   return lines.join('\n');
 }
@@ -278,6 +278,8 @@ export function parseDreamFactOps(raw: unknown): FactOperation[] | null {
     const targetId = typeof obj.targetId === 'string' ? obj.targetId.trim().slice(0, 64) : undefined;
     const category = normalizeFactCategory(typeof obj.category === 'string' ? obj.category : undefined);
     const subject = typeof obj.subject === 'string' ? obj.subject.trim().slice(0, 48) : undefined;
+    const rawVf = typeof obj.validFrom === 'string' ? obj.validFrom.trim() : typeof obj.valid_from === 'string' ? obj.valid_from.trim() : '';
+    const validFrom = rawVf && Number.isFinite(Date.parse(rawVf)) ? rawVf.slice(0, 40) : undefined;
     const sourceSeqs = Array.isArray(obj.sourceSeqs)
       ? obj.sourceSeqs.map(Number).filter((n) => Number.isInteger(n) && n > 0)
       : undefined;
@@ -289,6 +291,7 @@ export function parseDreamFactOps(raw: unknown): FactOperation[] | null {
       ...(targetId ? { targetId } : {}),
       ...(category ? { category } : {}),
       ...(subject ? { subject } : {}),
+      ...(validFrom ? { validFrom } : {}),
       ...(sourceSeqs?.length ? { sourceSeqs } : {}),
     });
   }
@@ -301,7 +304,7 @@ export function selectActiveFactsForPrompt(
   query: string,
   options: { maxFacts?: number; queryVec?: number[] | null; vectorMap?: Record<string, number[]> | null } = {},
 ): MemoryFact[] {
-  const active = listActiveFacts(dir);
+  const active = listActiveFacts(dir).filter((f) => typeof f.fact === 'string' && f.fact.trim().length > 0);
   if (!active.length) return [];
   const maxFacts = Math.max(1, options.maxFacts ?? 8);
   const queryTokens = tokenizeText(query);
@@ -318,13 +321,14 @@ export function selectActiveFactsForPrompt(
   return scored.slice(0, maxFacts).map((s) => s.fact);
 }
 
-/** 渲染当前有效长期事实段落（仅包含 active 记录）。 */
+/** 渲染当前有效长期事实段落（仅包含 active 记录，并容错手改缺失字段）。 */
 export function formatActiveFactsPromptSection(facts: MemoryFact[]): string {
-  const activeOnly = facts.filter((f) => f.status === 'active');
+  const activeOnly = facts.filter((f) => f && f.status === 'active' && typeof f.fact === 'string' && f.fact.trim().length > 0);
   if (!activeOnly.length) return '';
   const lines = ['', '## 长期个人事实记忆 (Active Facts · 最新有效事实，若与更早日记/流水冲突一律以此为准)'];
   for (const f of activeOnly) {
-    lines.push(`- [${f.id}]${f.category ? `[${f.category}]` : ''} ${f.fact} (valid_from: ${f.valid_from.slice(0, 10)})`);
+    const vf = typeof f.valid_from === 'string' && f.valid_from.trim() ? f.valid_from.trim().slice(0, 10) : '未知';
+    lines.push(`- [${f.id}]${f.category ? `[${f.category}]` : ''} ${f.fact} (valid_from: ${vf})`);
   }
   return lines.join('\n');
 }

@@ -12,6 +12,7 @@ import type { BodyType, ExperimentalConfig, JournalEntry } from '../soul/types.t
 import {
   buildDreamConsolidationPrompt,
   parseAndValidateDreamJson,
+  type BuiltDreamPrompt,
   type ValidatedDreamPlan,
 } from './dream-parser.ts';
 import { lexicalSimilarity } from './experience.ts';
@@ -162,12 +163,13 @@ export async function runDreamConsolidation(
     };
   }
 
+  let built: BuiltDreamPrompt | null = null;
   let validatedPlan: ValidatedDreamPlan | null = null;
   if (options.llm?.isRealLlm()) {
-    const prompt = buildDreamConsolidationPrompt(snap.meta, snap.pending, snap.activeFacts);
+    built = buildDreamConsolidationPrompt(snap.meta, snap.pending, snap.activeFacts);
     try {
-      const reply = await options.llm.dreamSummarize(prompt);
-      validatedPlan = parseAndValidateDreamJson(reply, snap.pending);
+      const reply = await options.llm.dreamSummarize(built.prompt);
+      validatedPlan = parseAndValidateDreamJson(reply, built.includedEntries);
     } catch (err) {
       console.warn(`[soul-dream] LLM 整理响应解析/调用失败，自动降级离线规则整理: ${err instanceof Error ? err.message : String(err)}`);
       validatedPlan = null;
@@ -190,6 +192,11 @@ export async function runDreamConsolidation(
         factsAdded: 0, factsUpdated: 0, factsDeleted: 0,
       };
     }
+
+    const effectiveEntries = validatedPlan !== null && built ? built.includedEntries : snap.pending;
+    const nextLastDreamSeq = validatedPlan !== null && built
+      ? built.lastIncludedSeq
+      : snap.pending[snap.pending.length - 1].seq;
 
     let episodesAdded = 0;
     let commitmentsAdded = 0;
@@ -221,7 +228,7 @@ export async function runDreamConsolidation(
         coBecomingAdded += 1;
       }
     } else {
-      const res = heuristicConsolidate(archiveDir, snap.pending, latestMeta.name, latestMeta.partnerName, nowMs, enableInnerLife);
+      const res = heuristicConsolidate(archiveDir, effectiveEntries, latestMeta.name, latestMeta.partnerName, nowMs, enableInnerLife);
       episodesAdded = res.episodesAdded;
       commitmentsAdded = res.commitmentsAdded;
       coBecomingAdded = res.coBecomingAdded;
@@ -229,20 +236,21 @@ export async function runDreamConsolidation(
 
     const factOps = validatedPlan !== null
       ? (validatedPlan.facts ?? [])
-      : extractHeuristicFactOps(snap.pending, listActiveFacts(archiveDir), latestMeta.partnerName);
+      : extractHeuristicFactOps(effectiveEntries, listActiveFacts(archiveDir), latestMeta.partnerName);
     const factRep = applyFactOperations(archiveDir, factOps, {
       nowMs,
       defaultSubject: latestMeta.partnerName,
-      defaultBodyType: snap.pending[snap.pending.length - 1]?.bodyType,
+      defaultBodyType: effectiveEntries[effectiveEntries.length - 1]?.bodyType,
     });
 
     const updatedMeta = readMetaOrRecover(archiveDir, { writeRecovered: true });
-    updatedMeta.lastDreamSeq = snap.pending[snap.pending.length - 1].seq;
+    updatedMeta.lastDreamSeq = nextLastDreamSeq;
     writeJsonAtomic(resolveArchivePaths(archiveDir).meta, updatedMeta);
     refreshDerivedSoulFiles(archiveDir);
     return {
       stale: false as const,
       lastDreamSeq: updatedMeta.lastDreamSeq,
+      processedEntries: effectiveEntries.length,
       episodesAdded,
       commitmentsAdded,
       coBecomingAdded,
@@ -278,7 +286,7 @@ export async function runDreamConsolidation(
     : '';
   return {
     ok: true,
-    processedEntries: snap.pending.length,
+    processedEntries: commitOut.processedEntries,
     lastDreamSeq: commitOut.lastDreamSeq,
     episodesAdded: commitOut.episodesAdded,
     commitmentsAdded: commitOut.commitmentsAdded,
@@ -287,6 +295,6 @@ export async function runDreamConsolidation(
     factsUpdated: commitOut.factsUpdated,
     factsDeleted: commitOut.factsDeleted,
     vectorsIndexed: vecRep.indexed,
-    summaryNote: `已做梦整理 ${snap.pending.length} 条经历：新增 ${commitOut.episodesAdded} 条情景卡、${commitOut.commitmentsAdded} 条未完约定${factNote}。`,
+    summaryNote: `已做梦整理 ${commitOut.processedEntries} 条经历：新增 ${commitOut.episodesAdded} 条情景卡、${commitOut.commitmentsAdded} 条未完约定${factNote}。`,
   };
 }

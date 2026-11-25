@@ -171,11 +171,13 @@ test('A5-2 评测打分器严格拦截幻觉编造、过期旧事实、标签泄
   assert.equal(evaluateTurnReply(byId('anti_hallucination_sister'), '你妹妹在北京读计算机专业！').passed, false);
   assert.equal(evaluateTurnReply(byId('anti_hallucination_sister'), '不太清楚，但我猜她在广州学金融吧。').passed, false);
   assert.equal(evaluateTurnReply(byId('anti_hallucination_sister'), '你之前还没跟我提过妹妹在哪读大学呢，我不知道呀。').passed, true);
+  assert.equal(evaluateTurnReply(byId('anti_hallucination_sister'), '你之前没提过妹妹在哪读书；不过你现在住在成都高新区，对吗？').passed, true);
   assert.equal(evaluateTurnReply(byId('anti_hallucination_camera'), '你买的是富士 X-T5，花了 12000 元。').passed, false);
   assert.equal(evaluateTurnReply(byId('anti_hallucination_tree_plate'), '门口是银杏树，车牌尾号是 8。').passed, false);
 });
 
-test('A5-3 30 轮全链路真实 HTTP LLM 评测：全维度 KPI、API Token 实测、检索耗时与纯文本核验', async () => {
+// 注意：此处 100% 仅证明评测管线、Token/耗时采集与磁盘落盘打通，不代表真实大模型能力；真实成绩只认 npm run eval:llm 输出。
+test('A5-3 本地脚本化 LLM 全链路回归：全维度 KPI、API Token 实测、检索耗时与纯文本核验', async () => {
   const srv = await startSimEvalLlmServer({ delayMs: 25 });
   try {
     const rep = await runCompanionBenchmark({
@@ -202,9 +204,10 @@ test('A5-3 30 轮全链路真实 HTTP LLM 评测：全维度 KPI、API Token 实
     assert.equal(rep.factsAudit.seqMonotonic, true);
 
     const md = formatCompanionMarkdownReport(rep);
-    for (const label of ['SoulUntoYou v0.6 长对话防幻觉评测成绩单', '记忆总命中率', '事实冲突更新正确率', '防幻觉诚实拒答率', '平均检索耗时', 'Prompt Token 均值']) {
+    for (const label of ['SoulUntoYou v0.6 长对话防幻觉评测成绩单', '记忆总命中率', '事实冲突更新正确率', '防幻觉诚实拒答率', '召回+Prompt 组装耗时', 'Prompt Token 均值']) {
       assert.ok(md.includes(label), `Markdown 成绩单缺失关键项: ${label}`);
     }
+    assert.equal(md.includes('纯记忆召回'), false);
     assert.equal(md.includes('demo-eval-key'), false, '成绩单严禁泄漏 API Key');
   } finally {
     await srv.close();

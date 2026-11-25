@@ -187,7 +187,7 @@ export function formatCompanionMarkdownReport(rep: CompanionEvalReport): string 
     `| **防幻觉诚实拒答率** | **${rep.antiHallucinationRatePct}%** | ${rep.dimensions.anti_hallucination.passed} / ${rep.dimensions.anti_hallucination.total}（未提过事项诚实说不知道） |`,
     `| **人设保持率** | **${rep.personaRetentionRatePct}%** | ${rep.dimensions.persona.passed} / ${rep.dimensions.persona.total}（无机械 AI 说教） |`,
     `| **内部标签泄漏次数** | **${rep.leakedTagCount}** | 全程 ${rep.totalTurns} 轮 \`<soul_meta>\` 泄漏计数 |`,
-    `| **平均检索耗时** | **${rep.avgRetrievalMs} ms** | P95: ${rep.p95RetrievalMs} ms ｜ Max: ${rep.maxRetrievalMs} ms（纯记忆召回） |`,
+    `| **召回+Prompt 组装耗时** | **${rep.avgRetrievalMs} ms** | P95: ${rep.p95RetrievalMs} ms ｜ Max: ${rep.maxRetrievalMs} ms（均值，含索引召回与 Prompt 组装） |`,
     `| **平均单轮端到端耗时** | **${rep.avgLatencyMs} ms** | 含检索 + 模型推理 + 原子写盘 |`,
     `| **Prompt Token 均值** | **${rep.avgPromptTokens}** | 峰值 ${rep.maxPromptTokens} tokens（${tokNote(rep.promptTokenSource)}） |`,
     '',
