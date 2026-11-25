@@ -1,13 +1,39 @@
+# Local secrets, tokens & machine-specific configs
 .env
+.env.*
 *.local.json
 *.token
 .soul-hub.token
+keys.json
+*.pem
+*.key
+
+# Private user soul archives
 private-souls/
+
+# Derived local caches & SQLite indexes (100% rebuildable from plain text)
+.cache/
+*.sqlite
+*.sqlite-*
+*.db
+
+# Temporary files, review diffs & logs
+diff_*.txt
+*.diff
+*.patch
+*.tmp
+*.bak
+*.orig
+*.swp
 *.log
+
+# Dependencies & OS metadata
 node_modules/
 .DS_Store
 Thumbs.db
+
+# Runtime artifacts inside demo template
+examples/demo-soul/.cache/
 examples/demo-soul/INDEX/
 examples/demo-soul/SNAPSHOTS/
 examples/demo-soul/INNER-LIFE/
-.cache/

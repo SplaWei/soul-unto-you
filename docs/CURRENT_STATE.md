@@ -1,6 +1,6 @@
 # CURRENT_STATE · 滚动接力棒（随时可换新窗口）
 
-> 最后更新：`v0.6` `Task A1`~`Task A5` 及红队返工（文档/P0/P2）已全部完成并本地存档｜严格 `<= 60` 行、零隐私。
+> 最后更新：`v0.6.0` 发版前卫生清理与 `.gitignore` 加固完成（待主人确认上传清单与版本号后打标推送）｜严格 `<= 60` 行、零隐私。
 
 ## 1. 当前阶段与基线
 - **当前基线**：`v0.5.0`（`HUB_VERSION='0.5.0'` / `HUB_PHASE='5.5'` / `engines.node >= 22.18.0` / 零依赖）在本地依次完成 `AGENTS.md` 规则优化、P0 防污染加固与 P2 细节修复，**均仅做本地 commit，未 push**。
@@ -21,7 +21,7 @@
 3. **纯文本真相源与安全**：`SEED.md`/`SOUL.md`/`MEMORIES/*.jsonl`（含 `facts.jsonl`）为唯一真相源；`.cache/`（`memory-index.sqlite` 与评测报告）可随时删除；禁触碰 `private-souls/`、`~/SoulArchive/`、`*.local.json`。
 
 ## 4. 下一步精确任务（按 [V06_EXECUTION_GUIDE.md](./V06_EXECUTION_GUIDE.md) 推进）
-1. **待主人终审放行 👉 `v0.6` Task A3~A5 返工已落盘**：确认无 P0/P1 后可发版 `v0.6.0` 并开启 Phase B (`Task B1` SillyTavern 角色卡 V2 导入与 `/v1` 联调)。
+1. **待主人确认发版清单 👉 `v0.6.0` 准备就绪**：已清理临时审稿 diff 文件并加固 `.gitignore`；待主人确认上传清单、可选开发期文件取舍及 `0.6.0` 版本号同步后，再打 `v0.6.0` 标签并推送 GitHub，随后开启 Phase B（`Task B1`）。
 
 ## 5. 按需文档索引
 - 当前最高优先级指南：[V06_EXECUTION_GUIDE.md](./V06_EXECUTION_GUIDE.md)｜长期总路线：[ROADMAP.md](./ROADMAP.md)｜外部记忆插座：[MEMORY-RETRIEVER-PROTOCOL.md](./MEMORY-RETRIEVER-PROTOCOL.md)
